@@ -1037,7 +1037,30 @@ async function login(userId, pwd) {
       return { code: 0, data: s };
     }
   }
-  /* 本地模式 */
+  /* 本地模式 — 但如果 db.js 已加载 supabase-js，硬编码默认凭证走云端（让员工首次就能登） */
+  if (App.dbList && App.saveCfg) {
+    try {
+      let cfg = App.getCfg ? App.getCfg() : null;
+      if (!cfg || !cfg.SUPABASE_URL) {
+        /* 用 hardcoded 默认凭证 */
+        App.saveCfg({ SUPABASE_URL: 'https://ddqrpofltnlerjodewxm.supabase.co', SUPABASE_ANON_KEY: 'sb_publishable_pjMAv7pz5IELDihL5mQ9Qg_F0Y5ulMd' });
+        cfg = App.getCfg();
+      }
+      if (cfg && cfg.SUPABASE_URL) {
+        const list = await App.dbList('users');
+        if (list && list.length) {
+          const u = list.find(x => x.id === userId || x.user_name === userId || x.userName === userId);
+          if (!u) return { code: 1, msg: '账号不存在（云端共 ' + list.length + ' 个账号）' };
+          if (u.active === false) return { code: 1, msg: '该账号已停用' };
+          if ((u.pwd || '123456') !== pwd) return { code: 1, msg: '密码不正确' };
+          const s = { userId: u.id, name: u.name, position: u.position, initial: u.initial, loginAt: DB.today, userName: u.user_name, scopes: u.scopes || [], active: u.active };
+          localStorage.setItem('lh-crm-session', JSON.stringify(s));
+          return { code: 0, data: s };
+        }
+      }
+    } catch (e) { /* fall through to local */ }
+  }
+  /* 真·本地模式（仅 1 个 admin 账号） */
   const u = DB.users.find(x => x.id === userId || x.userName === userId);
   if (!u) return { code: 1, msg: '账号不存在' };
   if ((u.pwd || '123456') !== pwd) return { code: 1, msg: '密码不正确（演示密码 123456）' };

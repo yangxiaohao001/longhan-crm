@@ -3,17 +3,35 @@
 (function () {
   const selected = { uid: null };
 
-  function renderUsers() {
+  let _cloudUsers = null;   /* 云端拉到的最新账号列表 */
+  async function renderUsers() {
     const box = document.getElementById('userList');
-    box.innerHTML = '<div class="view-banner" style="margin:0 0 10px"><span data-icon="user"></span>点击下方任一账号快速填充</div>' +
-      DB.users.map(u =>
+    /* 云模式：从云端拉账号列表（这样员工能选自己；本地模式走 DB） */
+    if (App.dbMode && App.dbMode() === 'cloud' && App.dbList) {
+      try {
+        const list = await App.dbList('users');
+        if (list && list.length) {
+          _cloudUsers = list.map(u => ({
+            id: u.id, name: u.name, userName: u.user_name || u.userName,
+            position: u.position, pwd: u.pwd, initial: (u.name || '').slice(0, 1),
+          }));
+        }
+      } catch (e) { /* 降级用本地 */ }
+    }
+    const users = _cloudUsers || DB.users;
+    if (!users.length) {
+      box.innerHTML = '<div class="view-banner" style="margin:0 0 10px"><span data-icon="user"></span>暂无账号</div>';
+      return;
+    }
+    box.innerHTML = '<div class="view-banner" style="margin:0 0 10px"><span data-icon="user"></span>点击下方任一账号快速填充（' + (_cloudUsers ? '从云端同步' : '本地') + '）</div>' +
+      users.map(u =>
         '<div class="login-user" data-uid="' + u.id + '">' +
-        '<span class="nav-avatar">' + u.initial + '</span>' +
-        '<div><b>' + App.escapeHtml(u.name) + '</b><i>' + App.escapeHtml(u.position) + (u.userName ? ' · ' + u.userName : '') + '</i></div>' +
+        '<span class="nav-avatar">' + App.escapeHtml(u.initial || '?') + '</span>' +
+        '<div><b>' + App.escapeHtml(u.name) + '</b><i>' + App.escapeHtml(u.position || '') + (u.userName ? ' · ' + u.userName : '') + '</i></div>' +
         '</div>').join('');
     box.querySelectorAll('.login-user').forEach(el => {
       el.addEventListener('click', () => {
-        const u = DB.users.find(x => x.id === el.dataset.uid);
+        const u = users.find(x => x.id === el.dataset.uid);
         if (!u) return;
         selected.uid = u.id;
         document.getElementById('userInput').value = u.userName || u.phone || u.name;
