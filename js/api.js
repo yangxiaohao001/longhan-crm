@@ -1024,6 +1024,20 @@ async function resolveReminder(id) {
 // TODO: replace with fetch('POST /api/login')
 async function login(userId, pwd) {
   await delay(600);
+  /* 云模式：直接从云端 users 表校验（确保新增账号能登） */
+  if (App.dbMode && App.dbMode() === 'cloud' && App.dbList) {
+    const list = await App.dbList('users');
+    if (list && list.length) {
+      const u = list.find(x => x.id === userId || x.user_name === userId || x.userName === userId);
+      if (!u) return { code: 1, msg: '账号不存在（云端共 ' + list.length + ' 个账号）' };
+      if (u.active === false) return { code: 1, msg: '该账号已停用，请联系总经理' };
+      if ((u.pwd || '123456') !== pwd) return { code: 1, msg: '密码不正确' };
+      const s = { userId: u.id, name: u.name, position: u.position, initial: u.initial, loginAt: DB.today, userName: u.user_name, scopes: u.scopes || [], active: u.active };
+      localStorage.setItem('lh-crm-session', JSON.stringify(s));
+      return { code: 0, data: s };
+    }
+  }
+  /* 本地模式 */
   const u = DB.users.find(x => x.id === userId || x.userName === userId);
   if (!u) return { code: 1, msg: '账号不存在' };
   if ((u.pwd || '123456') !== pwd) return { code: 1, msg: '密码不正确（演示密码 123456）' };

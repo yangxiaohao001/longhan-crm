@@ -1,0 +1,11 @@
+node_modules/
+.DS_Store
+*.log
+build-manual.js
+~$*
+extracted-requirements.md
+check-classes.ps1
+.zcode/
+.git/
+.gitignore
+push-to-github.ps1
