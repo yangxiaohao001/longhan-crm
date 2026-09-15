@@ -1,0 +1,8 @@
+node_modules/
+.DS_Store
+*.log
+build-manual.js
+~$*CRM操作手册.docx
+extracted-requirements.md
+check-classes.ps1
+.zcode/
