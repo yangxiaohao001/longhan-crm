@@ -652,6 +652,17 @@ async function approveQuote(id, pass, reason) {
 
 /* 标记成交：自动生成订单（调研表：报价转订单闭环） */
 // TODO: replace with fetch('POST /api/quotes/:id/deal')
+/* 报价备注里的 [导入文件]名称|url 标记：解析出导入源文件（展示在报价抽屉、并随成交带入订单附件） */
+function _splitImportNote(note) {
+  const files = []; const text = [];
+  String(note || '').split('\n').forEach(l => {
+    const m = l.match(/^\[导入文件\](.+)\|(.+)$/);
+    if (m) files.push({ name: m[1], url: m[2], path: '', size: 0, mime: '' });
+    else text.push(l);
+  });
+  return { text: text.join('\n'), files };
+}
+
 async function markQuoteDeal(id) {
   await delay(520);
   const q = _quoteById(id);
@@ -673,7 +684,7 @@ async function markQuoteDeal(id) {
       owner: q.owner, amount: _versionTotal(v), paid: 0, status: '已下单',
       orderDate: DB.today, paymentDue: d.toISOString().slice(0, 10),
       dueDate: dd.toISOString().slice(0, 10),
-      stageDates: { ordered: DB.today }, files: [],
+      stageDates: { ordered: DB.today }, files: _splitImportNote(q.note).files,
       note: '由报价 ' + q.no + ' 转入，按报价明细 v' + v.v + ' 执行。',
     };
     DB.orders.push(order);

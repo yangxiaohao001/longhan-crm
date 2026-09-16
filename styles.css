@@ -713,3 +713,8 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(100, 116, 
 .att-size { font-size: 11px; color: var(--ink-faint); margin-top: 2px; }
 html[data-theme="light"] .att-thumb { background: #eef2f7; }
 html[data-theme="light"] .att-page { box-shadow: 0 2px 8px rgba(15, 23, 42, .18); }
+
+/* ---------- 导入合计横幅（图标必须有尺寸约束，否则 svg 撑满容器） ---------- */
+.import-total { display: flex; align-items: center; gap: 9px; padding: 10px 16px; margin-bottom: 16px; font-size: 13px; color: var(--accent); background: var(--warning-bg); border: 1px solid rgba(255, 184, 77, .3); border-radius: var(--radius-md); }
+.import-total svg { width: 16px; height: 16px; flex: none; }
+.import-row .icon svg { width: 14px; height: 14px; }

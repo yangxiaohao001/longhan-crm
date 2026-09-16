@@ -146,7 +146,16 @@
           '<li class="' + (i === 0 ? 'done' : '') + '"><span class="t-dot"></span><div class="t-title">v' + v.v + '<em>' + v.date + ' · ' + App.fmtMoney(v.total) + '</em></div>' +
           '<div class="t-sub">' + App.escapeHtml(v.note || '') + '</div></li>').join('') + '</ul></div></div>' : '') +
 
-        (q.note ? '<p class="form-hint" style="margin-bottom:14px">' + App.escapeHtml(q.note) + '</p>' : '') +
+        ((() => {
+          const sp = (typeof _splitImportNote === 'function') ? _splitImportNote(q.note) : { text: q.note || '', files: [] };
+          let h = '';
+          if (sp.files.length) h += '<div class="field" style="margin-bottom:12px"><label>导入文件</label>' +
+            sp.files.map(f2 => '<div class="file-card"><div class="fc-icon" style="background:#8b5cf6">表格</div><div class="fc-body">' +
+            '<a class="fc-name" href="' + App.escapeHtml(f2.url) + '" target="_blank" rel="noopener">' + App.escapeHtml(f2.name) + '</a>' +
+            '<div class="fc-meta">报价导入源文件 · 点击查看</div></div></div>').join('') + '</div>';
+          if (sp.text) h += '<p class="form-hint" style="margin-bottom:14px">备注：' + App.escapeHtml(sp.text) + '</p>';
+          return h;
+        })()) +
 
         '<div class="row-actions">' +
         (canEdit && ['草稿', '已驳回'].includes(q.status) ? '<button class="btn btn-primary" id="qSubmit"><span data-icon="send"></span>提交审批</button>' : '') +
@@ -290,7 +299,7 @@
   /* ---------- Excel / CSV 表格解析：识别表头列，导出报价明细行 ---------- */
   function parseGrid(grid) {
     const norm = x => String(x == null ? '' : x).trim();
-    const KEY = { name: ['产品', '品名', '名称', '材料', '物料', '货品'], spec: ['规格', '型号'], qty: ['数量'], price: ['单价', '价格'], unit: ['单位'], cust: ['客户'] };
+    const KEY = { name: ['产品', '品名', '名称', '材料', '物料', '货品'], spec: ['规格', '型号'], qty: ['数量'], price: ['单价', '价格'], unit: ['单位'], radius: ['半径'], cust: ['客户'] };
     let headIdx = -1, map = null;
     for (let i = 0; i < Math.min(grid.length, 8); i++) {
       const row = (grid[i] || []).map(norm);
@@ -313,8 +322,11 @@
       for (let i = headIdx + 1; i < grid.length; i++) {
         const row = grid[i] || [];
         const name = norm(map.name != null ? row[map.name] : '');
-        if (!name) continue;
-        out.push({ pid: '', name, spec: norm(map.spec != null ? row[map.spec] : ''), qty: Math.max(1, num(map.qty != null ? row[map.qty] : '') || 1), price: num(map.price != null ? row[map.price] : ''), unit: norm(map.unit != null ? row[map.unit] : '') || '件' });
+        if (!name || /税金|合计|小计|总计/.test(name)) continue;
+        let spec = norm(map.spec != null ? row[map.spec] : '');
+        const radius = norm(map.radius != null ? row[map.radius] : '');
+        if (radius) spec = (spec ? spec + ' ' : '') + 'R' + radius;
+        out.push({ pid: '', name, spec, qty: Math.max(1, num(map.qty != null ? row[map.qty] : '') || 1), price: num(map.price != null ? row[map.price] : ''), unit: norm(map.unit != null ? row[map.unit] : '') || '件' });
       }
     } else {
       for (const row of grid) {
@@ -330,6 +342,7 @@
   function addModal(preCid) {
     const products = DB.products;
     let rows = [{ pid: products[0].id, name: products[0].name, spec: products[0].spec, qty: 1, price: products[0].price, unit: products[0].unit }];
+    let importedFile = null;
     App.openModal({
       title: '新建报价',
       wide: true,
@@ -345,7 +358,8 @@
         '<div class="field"><label>产品明细<b>*</b></label>' +
         '<div class="import-row" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
         '<button class="btn btn-sm" id="qImport"><span data-icon="file-spreadsheet"></span>导入 Excel 表格</button>' +
-        '<button class="btn btn-sm" id="qTpl"><span data-icon="download"></span>下载导入模板</button>' +
+        '<button class="btn btn-sm" id="qTpl1"><span data-icon="download"></span>旋转钢梯模板</button>' +
+        '<button class="btn btn-sm" id="qTpl2"><span data-icon="download"></span>拉弯模板</button>' +
         '<span class="sub-line" id="qImportMsg">先下载模板→按格式填写→再导入，系统自动识别（图片识别开发中）</span></div>' +
         '<div id="qHead" style="margin-bottom:4px">' +
         '<div class="row-actions" style="flex-wrap:wrap">' +
@@ -394,35 +408,73 @@
                 if (c) { box.querySelector('#qCust').value = c.id; msg.textContent = '已识别客户「' + c.name + '」，并导入 ' + res.rows.length + ' 行明细，请核对金额'; }
                 else msg.textContent = '已导入 ' + res.rows.length + ' 行明细；表格中的客户「' + res.custName + '」不在客户库，请手动选择客户';
               } else msg.textContent = '已导入 ' + res.rows.length + ' 行明细，请核对数量与单价';
+              /* 导入的源文件上传到云存储，保存报价后作为附件留档展示 */
+              importedFile = null;
+              App.dbUpload('quote-imports', f).then(r => {
+                if (r.ok) importedFile = { name: r.name, size: r.size, mime: r.mime, url: r.url, path: r.path };
+              });
             } catch (err) { msg.textContent = '解析失败：' + err.message; }
           };
           inp.click();
         });
-        const tpl = box.querySelector('#qTpl');
-        if (tpl) tpl.addEventListener('click', () => {
+        const buildTpl = type => {
           try {
-            const ws = XLSX.utils.aoa_to_sheet([
-              ['客户名称', '产品名称', '规格', '数量', '单价（元）', '单位'],
-              [], [], [],
-            ]);
-            ws['!cols'] = [{ wch: 20 }, { wch: 24 }, { wch: 26 }, { wch: 8 }, { wch: 12 }, { wch: 8 }];
+            let ws, name;
+            if (type === 'stair') {
+              ws = XLSX.utils.aoa_to_sheet([
+                ['钢结构旋转楼梯报价单'],
+                [],
+                ['项目名称：', '', '报价日期：', ''],
+                ['含税税率：13%', '', '备注：此报价为出厂含税价，不含安装及运输费。'],
+                [],
+                ['序号', '项目名称', '规格/材质说明', '单位', '数量', '单价（元）', '小计（元）', '备注'],
+                ['1', '', '', '步', '1', '', '', ''],
+                ['2', '', '', '步', '1', '', '', ''],
+                ['3', '', '', '套', '1', '', '', ''],
+                ['4', '', '', '项', '1', '', '', ''],
+                [],
+                ['补充条款：报价有效期30天；工厂交货，不含安装/运输；预付50%，发货前结清。'],
+              ]);
+              ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
+              ws['!cols'] = [{ wch: 6 }, { wch: 20 }, { wch: 40 }, { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 16 }];
+              name = '旋转钢梯报价导入模板.xlsx';
+            } else {
+              ws = XLSX.utils.aoa_to_sheet([
+                ['不锈钢圆管拉弯报价单'],
+                [],
+                ['序号', '名称', '规格（mm)', '半径（mm)', '数量(米）', '单价（元/米）', '金额（元）', '备注'],
+                ['1', '', '', '', '', '', '', ''],
+                ['2', '', '', '', '', '', '', ''],
+                ['3', '', '', '', '', '', '', ''],
+                [],
+                ['备注：以上报价含模具费、拉弯费、运输费及13%税金。'],
+                ['报价单位：河北龙瀚金属制品有限公司'],
+              ]);
+              ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
+              ws['!cols'] = [{ wch: 6 }, { wch: 18 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 16 }];
+              name = '拉弯报价导入模板.xlsx';
+            }
             const ws2 = XLSX.utils.aoa_to_sheet([
               ['填写说明'],
-              ["1. 第一个工作表'报价明细'里，从第 5 行开始填写产品明细（前几行留空不影响导入，也可删掉本说明表）。"],
-              ["2. 客户名称：必须与系统客户管理里的名称完全一致（一个表格只填一个客户）。"],
-              ["3. 产品名称：优先填产品库里已有的名称，系统会自动带出规格和参考单价；库里没有的可以随意填写，作为自定义产品。"],
-              ["4. 规格：选填。数量：必填，数字。单价（元）：必填，数字。单位：如 吨 / 根 / 件 / 米。"],
-              ["5. 填完后保存，回到新建报价弹窗点'导入 Excel 表格'选择这个文件即可。"],
+              ['1. 在"明细"工作表的表头下逐行填写，金额/小计列不用填（系统自动按数量×单价计算）。'],
+              ['2. 客户名称不在表内：导入后请在弹窗顶部手动选择客户（一个文件对应一个客户）。'],
+              ['3. 旋转钢梯模板：填 项目名称/规格材质/单位/数量/单价；拉弯模板：填 名称/规格/半径/数量(米)/单价(元/米)，半径会自动并入规格。'],
+              ['4. "税金""合计"等行不用填，系统自动计算总金额。'],
+              ['5. 填完保存后，点"导入 Excel 表格"选择此文件，再核对新弹窗里的明细与金额。'],
             ]);
             ws2['!cols'] = [{ wch: 100 }];
             const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, '报价明细');
+            XLSX.utils.book_append_sheet(wb, ws, '明细');
             XLSX.utils.book_append_sheet(wb, ws2, '填写说明');
-            XLSX.writeFile(wb, '报价导入模板.xlsx');
+            XLSX.writeFile(wb, name);
             const msg = box.querySelector('#qImportMsg');
-            if (msg) msg.textContent = '模板已下载（在浏览器下载目录），填写后点"导入 Excel 表格"上传';
+            if (msg) msg.textContent = '模板已下载：' + name + '（在浏览器下载目录）';
           } catch (e) { App.toast('模板生成失败：' + e.message, 'danger'); }
-        });
+        };
+        const t1 = box.querySelector('#qTpl1');
+        if (t1) t1.addEventListener('click', () => buildTpl('stair'));
+        const t2 = box.querySelector('#qTpl2');
+        if (t2) t2.addEventListener('click', () => buildTpl('bend'));
         function calc() {
           const total = rows.reduce((s, r) => s + (r.price || 0) * (r.qty || 0), 0);
           totalEl.textContent = App.fmtMoney(total);
@@ -486,8 +538,10 @@
             const p = products.find(x => x.id === r.pid);
             return { productId: (p || {}).id || '', name: (r.name || '').trim() || (p ? p.name : ''), spec: (r.spec || '').trim(), unit: r.unit, qty: r.qty, price: r.price };
           });
+          let noteVal = box.querySelector('#qNote').value;
+          if (importedFile) noteVal += (noteVal ? '\n' : '') + '[导入文件]' + importedFile.name + '|' + importedFile.url;
           const res = await saveQuote({
-            customerId: cSel.value, items, owner: sess.userId, note: box.querySelector('#qNote').value,
+            customerId: cSel.value, items, owner: sess.userId, note: noteVal,
           });
           App.btnDone(btn);
           if (res.code !== 0) return App.toast(res.msg, 'danger');
