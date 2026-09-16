@@ -344,8 +344,9 @@
         '</div>' +
         '<div class="field"><label>产品明细<b>*</b></label>' +
         '<div class="import-row" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
-        '<button class="btn btn-sm" id="qImport"><span data-icon="file-spreadsheet"></span>导入 Excel / CSV 表格</button>' +
-        '<span class="sub-line" id="qImportMsg">自动识别列：产品名 / 规格 / 数量 / 单价 / 单位 / 客户名（图片识别功能开发中）</span></div>' +
+        '<button class="btn btn-sm" id="qImport"><span data-icon="file-spreadsheet"></span>导入 Excel 表格</button>' +
+        '<button class="btn btn-sm" id="qTpl"><span data-icon="download"></span>下载导入模板</button>' +
+        '<span class="sub-line" id="qImportMsg">先下载模板→按格式填写→再导入，系统自动识别（图片识别开发中）</span></div>' +
         '<div id="qHead" style="margin-bottom:4px">' +
         '<div class="row-actions" style="flex-wrap:wrap">' +
         '<div style="flex:1.2;min-width:150px;font-size:11.5px;color:var(--ink-faint)">① 产品名称（可输入或下拉选择）</div>' +
@@ -396,6 +397,31 @@
             } catch (err) { msg.textContent = '解析失败：' + err.message; }
           };
           inp.click();
+        });
+        const tpl = box.querySelector('#qTpl');
+        if (tpl) tpl.addEventListener('click', () => {
+          try {
+            const ws = XLSX.utils.aoa_to_sheet([
+              ['客户名称', '产品名称', '规格', '数量', '单价（元）', '单位'],
+              [], [], [],
+            ]);
+            ws['!cols'] = [{ wch: 20 }, { wch: 24 }, { wch: 26 }, { wch: 8 }, { wch: 12 }, { wch: 8 }];
+            const ws2 = XLSX.utils.aoa_to_sheet([
+              ['填写说明'],
+              ["1. 第一个工作表'报价明细'里，从第 5 行开始填写产品明细（前几行留空不影响导入，也可删掉本说明表）。"],
+              ["2. 客户名称：必须与系统客户管理里的名称完全一致（一个表格只填一个客户）。"],
+              ["3. 产品名称：优先填产品库里已有的名称，系统会自动带出规格和参考单价；库里没有的可以随意填写，作为自定义产品。"],
+              ["4. 规格：选填。数量：必填，数字。单价（元）：必填，数字。单位：如 吨 / 根 / 件 / 米。"],
+              ["5. 填完后保存，回到新建报价弹窗点'导入 Excel 表格'选择这个文件即可。"],
+            ]);
+            ws2['!cols'] = [{ wch: 100 }];
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, '报价明细');
+            XLSX.utils.book_append_sheet(wb, ws2, '填写说明');
+            XLSX.writeFile(wb, '报价导入模板.xlsx');
+            const msg = box.querySelector('#qImportMsg');
+            if (msg) msg.textContent = '模板已下载（在浏览器下载目录），填写后点"导入 Excel 表格"上传';
+          } catch (e) { App.toast('模板生成失败：' + e.message, 'danger'); }
         });
         function calc() {
           const total = rows.reduce((s, r) => s + (r.price || 0) * (r.qty || 0), 0);
