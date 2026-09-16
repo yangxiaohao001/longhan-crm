@@ -212,7 +212,7 @@
       html:
         '<div class="form-hint" style="margin-bottom:12px">已发送的报价调价会自动回到「待审批」，由老板批复后生效。</div>' +
         '<div class="field"><label>调整原因</label><input class="input" id="adjNote" placeholder="如：锌价上调，角钢单价上调 50 元"></div>' +
-        '<div class="field"><label>明细<b>*</b></label><div id="adjRows"></div>' +
+        '<div class="field"><label>明细<b>*</b></label><div id="adjRows"></div><datalist id="aProdList">' + products.map(x => '<option value="' + App.escapeHtml(x.name) + '">').join('') + '</datalist>' +
         '<button class="btn btn-sm" id="adjAdd" style="margin-top:8px"><span data-icon="plus"></span>加一行</button></div>' +
         '<div class="view-banner" style="margin:0"><span data-icon="coins"></span>新版本合计：<b class="money" id="adjTotal" style="margin-left:6px">¥0</b></div>',
       foot: '<button class="btn" data-act="cancel">取消</button><button class="btn btn-primary" data-act="ok">提交新版本</button>',
@@ -226,9 +226,7 @@
           rowsEl.innerHTML = rows.map((r, i) => {
             const p = products.find(x => x.id === r.pid) || {};
             return '<div class="row-actions" style="margin-bottom:8px;flex-wrap:wrap" data-row="' + i + '">' +
-              '<select class="select a-pid" style="flex:1;min-width:150px" title="从产品库快速选（选后可改）">' +
-              products.map(x => '<option value="' + x.id + '"' + (x.id === r.pid ? ' selected' : '') + '>' + x.name + '</option>').join('') + '</select>' +
-              '<input class="input a-name" value="' + App.escapeHtml(r.name || '') + '" style="flex:1;min-width:120px" placeholder="名称（可改）" title="名称（可改）">' +
+              '<input class="input a-name" list="aProdList" value="' + App.escapeHtml(r.name || '') + '" style="flex:1.2;min-width:150px" placeholder="输入产品名（库里没有的可直接自定义）" title="可输入，也可从产品库下拉选择" autocomplete="off">' +
               '<input class="input a-spec" value="' + App.escapeHtml(r.spec || '') + '" style="flex:1.3;min-width:140px" placeholder="规格（可改）" title="规格（可改）">' +
               '<input class="input a-qty num" type="number" min="1" value="' + r.qty + '" style="width:74px" title="数量">' +
               '<input class="input a-price num" type="number" min="0" step="0.01" value="' + r.price + '" style="width:108px" title="单价（可改）">' +
@@ -236,13 +234,18 @@
               unitOptions(r.unit).map(u => '<option' + (u === r.unit ? ' selected' : '') + '>' + u + '</option>').join('') + '</select>' +
               '<button class="btn btn-sm btn-danger a-del"><span data-icon="trash-2"></span></button></div>';
           }).join('');
-          rowsEl.querySelectorAll('.a-pid').forEach(sel => sel.addEventListener('change', () => {
-            const i = Number(sel.closest('[data-row]').dataset.row);
-            const p = products.find(x => x.id === sel.value);
-            rows[i].pid = sel.value;
-            rows[i].name = p ? p.name : rows[i].name;
-            rows[i].spec = p ? p.spec : rows[i].spec;
-            renderRows(); calc();
+          rowsEl.querySelectorAll('.a-name').forEach(inp => inp.addEventListener('input', () => {
+            const i = Number(inp.closest('[data-row]').dataset.row);
+            rows[i].name = inp.value;
+            const p = products.find(x => x.name === inp.value.trim());
+            if (p) {
+              rows[i].pid = p.id; rows[i].spec = p.spec; rows[i].unit = p.unit; rows[i].price = p.price;
+              const rowDiv = inp.closest('[data-row]');
+              rowDiv.querySelector('.a-spec').value = p.spec;
+              rowDiv.querySelector('.a-price').value = p.price;
+              rowDiv.querySelector('.a-unit').value = p.unit;
+              calc();
+            }
           }));
           rowsEl.querySelectorAll('.a-name').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].name = inp.value; }));
           rowsEl.querySelectorAll('.a-spec').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].spec = inp.value; }));
@@ -292,7 +295,7 @@
         '</select><p class="form-error"></p></div>' +
         '<div class="form-item"><label>备注</label><input class="input" id="qNote" placeholder="选填"></div>' +
         '</div>' +
-        '<div class="field"><label>产品明细<b>*</b></label><div id="qRows"></div>' +
+        '<div class="field"><label>产品明细<b>*</b></label><div id="qRows"></div><datalist id="qProdList">' + products.map(x => '<option value="' + App.escapeHtml(x.name) + '">').join('') + '</datalist>' +
         '<button class="btn btn-sm" id="qAddRow" style="margin-top:8px"><span data-icon="plus"></span>加一行</button><p class="form-error" id="qRowsErr"></p></div>' +
         '<div class="view-banner" style="margin:0"><span data-icon="coins"></span>合计：<b class="money" id="qTotal" style="margin-left:6px">¥0</b></div>',
       foot: '<button class="btn" data-act="cancel">取消</button><button class="btn btn-primary" data-act="ok">保存草稿</button>',
@@ -307,9 +310,7 @@
           rowsEl.innerHTML = rows.map((r, i) => {
             const p = products.find(x => x.id === r.pid) || {};
             return '<div class="row-actions" style="margin-bottom:8px;flex-wrap:wrap" data-row="' + i + '">' +
-              '<select class="select q-pid" style="flex:1;min-width:150px" title="从产品库快速选（选后可改）">' +
-              products.map(x => '<option value="' + x.id + '"' + (x.id === r.pid ? ' selected' : '') + '>' + x.name + '</option>').join('') + '</select>' +
-              '<input class="input q-name" value="' + App.escapeHtml(r.name || '') + '" style="flex:1;min-width:120px" placeholder="名称（可改）" title="名称（可改）">' +
+              '<input class="input q-name" list="qProdList" value="' + App.escapeHtml(r.name || '') + '" style="flex:1.2;min-width:150px" placeholder="输入产品名（库里没有的可直接自定义）" title="可输入，也可从产品库下拉选择" autocomplete="off">' +
               '<input class="input q-spec" value="' + App.escapeHtml(r.spec || '') + '" style="flex:1.3;min-width:140px" placeholder="规格（可改）" title="规格（可改）">' +
               '<input class="input q-qty num" type="number" min="1" value="' + r.qty + '" style="width:74px" placeholder="数量" title="数量">' +
               '<input class="input q-price num" type="number" min="0" step="0.01" value="' + r.price + '" style="width:108px" placeholder="单价" title="单价（可改）">' +
@@ -318,16 +319,18 @@
               '<span class="money q-sub" style="flex:none;width:96px;text-align:right">' + App.fmtMoney((r.price || 0) * r.qty) + '</span>' +
               '<button class="btn btn-sm btn-danger q-del"' + (rows.length === 1 ? ' disabled' : '') + '><span data-icon="trash-2"></span></button></div>';
           }).join('');
-          rowsEl.querySelectorAll('.q-pid').forEach(sel => sel.addEventListener('change', () => {
-            const i = Number(sel.closest('[data-row]').dataset.row);
-            const p = products.find(x => x.id === sel.value);
-            /* 换产品：带出产品库默认值（名称/规格/单价/单位均可再手改） */
-            rows[i].pid = sel.value;
-            rows[i].name = p ? p.name : rows[i].name;
-            rows[i].spec = p ? p.spec : rows[i].spec;
-            rows[i].price = p ? p.price : rows[i].price;
-            rows[i].unit = p ? p.unit : rows[i].unit;
-            renderRows(); calc();
+          rowsEl.querySelectorAll('.q-name').forEach(inp => inp.addEventListener('input', () => {
+            const i = Number(inp.closest('[data-row]').dataset.row);
+            rows[i].name = inp.value;
+            const p = products.find(x => x.name === inp.value.trim());
+            if (p) {
+              rows[i].pid = p.id; rows[i].spec = p.spec; rows[i].unit = p.unit; rows[i].price = p.price;
+              const rowDiv = inp.closest('[data-row]');
+              rowDiv.querySelector('.q-spec').value = p.spec;
+              rowDiv.querySelector('.q-price').value = p.price;
+              rowDiv.querySelector('.q-unit').value = p.unit;
+              calc();
+            }
           }));
           rowsEl.querySelectorAll('.q-name').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].name = inp.value; }));
           rowsEl.querySelectorAll('.q-spec').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].spec = inp.value; }));

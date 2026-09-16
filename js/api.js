@@ -541,9 +541,10 @@ async function fetchQuoteDetail(id) {
 async function saveQuote(payload) {
   await delay(560);
   if (!payload.customerId) return { code: 1, msg: '请选择客户' };
-  const items = (payload.items || []).filter(i => i.productId && i.qty > 0);
+  const items = (payload.items || []).filter(i => i.name && i.name.trim() && i.qty > 0);
   if (!items.length) return { code: 1, msg: '请至少添加一行有效产品' };
-  const seq = String(DB.quotes.length + 94).padStart(3, '0');
+  const maxNo = DB.quotes.reduce((m, q) => Math.max(m, parseInt((q.no || '').slice(6), 10) || 0), 0);
+  const seq = String(maxNo + 1).padStart(3, '0');
   const q = {
     id: _uid(), no: 'Q2026-' + seq, customerId: payload.customerId,
     owner: payload.owner || 'u2', status: '草稿',
@@ -566,7 +567,7 @@ async function createQuoteVersion(id, payload) {
   const q = _quoteById(id);
   if (!q) return { code: 1, msg: '报价单不存在' };
   if (q.approval && q.approval.pending) return { code: 1, msg: '该报价待审批，请等老板处理后再调整' };
-  const items = (payload.items || []).filter(i => i.productId && i.qty > 0);
+  const items = (payload.items || []).filter(i => i.name && i.name.trim() && i.qty > 0);
   if (!items.length) return { code: 1, msg: '请至少添加一行有效产品' };
   const prev = q.versions[q.versions.length - 1];
   const prevTotal = _versionTotal(prev);
