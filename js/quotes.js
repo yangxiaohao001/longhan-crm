@@ -488,7 +488,7 @@
       const cid = sp.get('cid');
       if (cid && DB.customers.some(c => c.id === cid)) addModal(cid);
       else addModal();
-      history.replaceState(null, '', 'quotes.html');
+      try { history.replaceState(null, '', 'quotes.html'); } catch (e) { /* 某些环境限制 replaceState，忽略 */ }
     }
   });
 })();
