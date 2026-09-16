@@ -271,7 +271,9 @@
             onOk: async () => {
               await App.dbRemove(f);
               oRef.files.splice(idx, 1);
-              _cloudSync("orders", "upsert", oRef);   /* 嵌套数组变更不触发钩子，显式同步 */
+              const raw = (typeof _orderById === 'function') ? _orderById(oRef.id) : null;
+              if (raw) { raw.files = oRef.files; _cloudSync("orders", "upsert", raw); }
+              else _cloudSync("orders", "upsert", oRef);
               App.toast('附件已删除');
               App.closeDrawer(); openDrawer(id);
             }
@@ -308,8 +310,11 @@
           okCount++;
         } else failMsg = '「' + f.name + '」上传失败：' + r.msg;
       }
-      /* files 是嵌套数组，不触发同步钩子，必须显式同步 */
-      _cloudSync("orders", "upsert", o);
+      /* files 是嵌套数组，不触发同步钩子；且 o 可能是视图副本（含 customerName 等数据库不存在
+         的字段，直接整包 upsert 会被 PGRST204 拒绝），必须用 _orderById 拿原始 DB 对象同步 */
+      const raw = (typeof _orderById === 'function') ? _orderById(o.id) : null;
+      if (raw) { raw.files = o.files; _cloudSync("orders", "upsert", raw); }
+      else _cloudSync("orders", "upsert", o);
       if (failMsg) App.toast(failMsg, okCount ? 'warn' : 'danger');
       App.toast(okCount ? '上传完成（' + okCount + ' 个文件）' : '没有文件上传成功', okCount ? 'success' : 'danger');
       if (done) done();
