@@ -242,6 +242,7 @@
             onOk: async () => {
               await App.dbRemove(f);
               oRef.files.splice(idx, 1);
+              _cloudSync("orders", "upsert", oRef);   /* 嵌套数组变更不触发钩子，显式同步 */
               App.toast('附件已删除');
               App.closeDrawer(); openDrawer(id);
             }
@@ -252,25 +253,29 @@
     });
   }
 
-  /* 上传附件（支持多选） */
+  /* 上传附件（支持多选；任意常见格式：word/pdf/excel/图片/cad/压缩包等） */
   function uploadFiles(o, done) {
     const inp = document.createElement('input');
     inp.type = 'file';
     inp.multiple = true;
-    inp.accept = '.pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.dwg,.txt';
     inp.onchange = async () => {
       const files = Array.from(inp.files || []);
       if (!files.length) return;
-      const btn = document.querySelector('.toast') || null;
       App.toast('正在上传 ' + files.length + ' 个文件…', 'info');
+      let okCount = 0, failMsg = '';
       for (const f of files) {
+        if (f.size > 50 * 1024 * 1024) { failMsg = '「' + f.name + '」超过 50MB，已跳过'; continue; }
         const r = await App.dbUpload(o.id, f);
         if (r.ok) {
           o.files = o.files || [];
           o.files.push({ name: r.name, size: r.size, mime: r.mime, url: r.url, path: r.path });
-        } else App.toast('上传失败：' + r.msg, 'danger');
+          okCount++;
+        } else failMsg = '「' + f.name + '」上传失败：' + r.msg;
       }
-      App.toast('上传完成');
+      /* files 是嵌套数组，不触发同步钩子，必须显式同步 */
+      _cloudSync("orders", "upsert", o);
+      if (failMsg) App.toast(failMsg, okCount ? 'warn' : 'danger');
+      App.toast(okCount ? '上传完成（' + okCount + ' 个文件）' : '没有文件上传成功', okCount ? 'success' : 'danger');
       if (done) done();
     };
     inp.click();
