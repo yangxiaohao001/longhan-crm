@@ -72,7 +72,7 @@
       (canEdit ? '<button class="btn btn-primary btn-sm" id="addLed"><span data-icon="plus"></span>记一笔支出</button>' : '') +
       '</div></div>' +
       '<div class="card-body table-wrap"><table class="table">' +
-      '<thead><tr><th>日期</th><th>类型</th><th>科目</th><th>关联单号</th><th>客户 / 说明</th><th>金额</th><th>记录人</th></tr></thead><tbody>' +
+      '<thead><tr><th>日期</th><th>类型</th><th>科目</th><th>关联单号</th><th>客户 / 说明</th><th>金额</th><th>记录人</th><th></th></tr></thead><tbody>' +
       (rows.length ? rows.map(l =>
         '<tr><td>' + l.date + '</td>' +
         '<td>' + (l.type === '收入' ? '<span class="badge badge-success">收入</span>' : '<span class="badge badge-warn">支出</span>') + '</td>' +
@@ -80,8 +80,12 @@
         '<td class="row-link">' + (l.refNo || '—') + '</td>' +
         '<td>' + App.escapeHtml(l.customerName || '') + '<span class="sub-line">' + App.escapeHtml(l.note || '') + '</span></td>' +
         '<td class="money ' + (l.type === '收入' ? 'success' : 'danger') + '">' + (l.type === '收入' ? '+' : '−') + App.fmtMoney(l.amount) + '</td>' +
-        '<td>' + App.escapeHtml((App.userById(l.recorder) || {}).name || '') + '</td></tr>').join('')
-        : '<tr><td colspan="7"><div class="empty"><span data-icon="inbox"></span><p>暂无流水</p></div></td></tr>') +
+        '<td>' + App.escapeHtml((App.userById(l.recorder) || {}).name || '') + '</td>' +
+        '<td>' + (canEdit && l.src === 'manual'
+          ? '<div class="row-actions"><button class="btn btn-sm" data-ledit="' + l.id + '"><span data-icon="pencil"></span>编辑</button>' +
+          '<button class="btn btn-sm btn-danger" data-ldel="' + l.id + '"><span data-icon="trash-2"></span>删除</button></div>'
+          : '<span class="sub-line">' + (l.type === '收入' ? '回款' : '采购付款') + '自动生成</span>') + '</td></tr>').join('')
+        : '<tr><td colspan="8"><div class="empty"><span data-icon="inbox"></span><p>暂无流水</p></div></td></tr>') +
       '</tbody></table></div></div>';
 
     root.querySelectorAll('.kpi-value[data-count]').forEach(el => App.countUp(el, Number(el.dataset.count)));
@@ -89,22 +93,36 @@
     root.querySelector('#tSel').addEventListener('change', e => { state.type = e.target.value; renderList(); });
     root.querySelector('#cSel').addEventListener('change', e => { state.category = e.target.value; renderList(); });
     const add = root.querySelector('#addLed');
-    if (add) add.addEventListener('click', addLedModal);
+    if (add) add.addEventListener('click', () => addLedModal(null));
+    root.querySelectorAll('[data-ledit]').forEach(b => b.addEventListener('click', () => {
+      const l = rows.find(x => x.id === b.dataset.ledit);
+      if (l) addLedModal(l);
+    }));
+    root.querySelectorAll('[data-ldel]').forEach(b => b.addEventListener('click', () => App.confirm({
+      title: '删除这笔支出？', html: '删除后不可恢复。回款与采购付款生成的流水不受影响。', okText: '确认删除', danger: true,
+      onOk: async () => {
+        const r = await deleteManualLedger(b.dataset.ldel);
+        if (r.code !== 0) return App.toast(r.msg, 'danger');
+        App.toast('已删除'); renderList();
+      },
+    })));
     App.mountIcons(root);
   }
 
-  /* 手工记账 */
-  function addLedModal() {
+  /* 手工记账（编辑模式传入已有账目） */
+  function addLedModal(existing) {
+    const isEdit = !!existing;
     App.openModal({
-      title: '记一笔支出',
+      title: isEdit ? '编辑支出' : '记一笔支出',
       html:
         '<div class="form-grid">' +
-        '<div class="form-item"><label>日期<b>*</b></label><input class="input" id="lDate" type="date" value="' + App.today + '"><p class="form-error"></p></div>' +
-        '<div class="form-item"><label>科目<b>*</b></label><select class="select" id="lCat">' + CATS.map(c => '<option>' + c + '</option>').join('') + '</select></div>' +
-        '<div class="form-item"><label>金额（元）<b>*</b></label><input class="input num" id="lAmt" type="number" min="1" step="0.01" placeholder="如 6800"><p class="form-error"></p></div>' +
-        '<div class="form-item"><label>用途说明</label><input class="input" id="lNote" placeholder="选填"></div>' +
+        '<div class="form-item"><label>日期<b>*</b></label><input class="input" id="lDate" type="date" value="' + (existing ? existing.date : App.today) + '"><p class="form-error"></p></div>' +
+        '<div class="form-item"><label>科目<b>*</b></label><select class="select" id="lCat">' + CATS.map(c => '<option' + (existing && existing.category === c ? ' selected' : '') + '>' + c + '</option>').join('') + '</select></div>' +
+        '<div class="form-item"><label>金额（元）<b>*</b></label><input class="input num" id="lAmt" type="number" min="1" step="0.01" value="' + (existing ? existing.amount : '') + '" placeholder="如 6800"><p class="form-error"></p></div>' +
+        '<div class="form-item"><label>关联单号</label><input class="input num" id="lRef" value="' + App.escapeHtml(existing ? (existing.refNo || '') : '') + '" placeholder="选填，如 PO2026-001"></div>' +
+        '<div class="form-item" style="grid-column:1/-1"><label>用途说明</label><input class="input" id="lNote" value="' + App.escapeHtml(existing ? (existing.note || '') : '') + '" placeholder="选填"></div>' +
         '</div>',
-      foot: '<button class="btn" data-act="cancel">取消</button><button class="btn btn-primary" data-act="ok">保存</button>',
+      foot: '<button class="btn" data-act="cancel">取消</button><button class="btn btn-primary" data-act="ok">' + (isEdit ? '保存修改' : '保存') + '</button>',
       onMount(box) {
         box.querySelector('[data-act="cancel"]').addEventListener('click', () => App.closeModal());
         box.querySelector('[data-act="ok"]').addEventListener('click', async e => {
@@ -114,14 +132,16 @@
           const amt = Number(amtEl.value);
           if (!dEl.value) return App.formError(dEl, '请选择日期');
           if (!amt || amt <= 0) return App.formError(amtEl, '请填写正确的金额');
-          App.btnLoading(btn);
-          const res = await saveManualLedger({
+          const payload = {
             date: dEl.value, category: box.querySelector('#lCat').value,
             amount: amt, note: box.querySelector('#lNote').value, recorder: sess.userId,
-          });
+            refNo: box.querySelector('#lRef').value.trim(),
+          };
+          App.btnLoading(btn);
+          const res = isEdit ? await updateManualLedger(existing.id, payload) : await saveManualLedger(payload);
           App.btnDone(btn);
           if (res.code !== 0) return App.toast(res.msg, 'danger');
-          App.closeModal(); App.toast('支出已入账'); renderList();
+          App.closeModal(); App.toast(isEdit ? '支出已更新' : '支出已入账'); renderList();
         });
       },
     });

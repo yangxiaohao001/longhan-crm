@@ -158,8 +158,8 @@ const App = {
 
   /* ---------- 状态 → 徽标 ---------- */
   stageMeta: {
-    '初步接触': '', '需求确认': 'badge-info', '已报价': 'badge-info', '打样中': 'badge-warn',
-    '商务谈判': 'badge-warn', '已下单': 'badge-info', '生产中': 'badge-warn', '已发货': 'badge-info',
+    '初步接触': '', '已报价': 'badge-info',
+    '已下单': 'badge-info', '生产中': 'badge-warn', '已发货': 'badge-info',
     '已收款': 'badge-success', '已流失': 'badge-danger',
   },
   quoteStatusMeta: {

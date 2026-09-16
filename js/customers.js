@@ -98,7 +98,7 @@
           : '<div class="card" style="margin-bottom:14px"><div class="card-body">' +
           '<div class="stage-bar">' + bar + '</div>' +
           '<div class="row-actions" style="margin-top:12px">' +
-          (!readOnly && c.isPreDeal && c.stageIndex < 4 ? '<button class="btn btn-primary btn-sm" id="cAdv"><span data-icon="chevron-right"></span>推进到「' + DB.stages[c.stageIndex + 1] + '」</button>' : '') +
+          (!readOnly && c.isPreDeal && c.stageIndex < PRE_DEAL_STAGES.length ? '<button class="btn btn-primary btn-sm" id="cAdv"><span data-icon="chevron-right"></span>推进到「' + DB.stages[c.stageIndex + 1] + '」</button>' : '') +
           (!readOnly ? '<button class="btn btn-sm" id="cFollow"><span data-icon="phone-call"></span>记一笔跟进</button>' : '') +
           (!readOnly && c.stage !== '已流失' ? '<button class="btn btn-sm btn-danger" id="cLost">标记流失</button>' : '') +
           (c.stage === '已流失' && App.can('customer.editAll') ? '<button class="btn btn-sm btn-warn" id="cRe">重新激活</button>' : '') +

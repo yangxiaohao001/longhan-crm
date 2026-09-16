@@ -67,7 +67,7 @@ function _userById(id) { return DB.users.find(u => u.id === id) || null; }
 function _orderById(id) { return DB.orders.find(o => o.id === id) || null; }
 function _quoteById(id) { return DB.quotes.find(q => q.id === id) || null; }
 
-const PRE_DEAL_STAGES = ['初步接触', '需求确认', '已报价', '打样中', '商务谈判'];
+const PRE_DEAL_STAGES = ['初步接触', '已报价'];
 const ORDER_FLOW = ['已下单', '生产中', '已发货', '已收款'];
 /* 动态计算近 6 个月（用于趋势图）；从最新月份往前推 */
 function _trendMonths() {
@@ -459,7 +459,7 @@ async function advanceCustomerStage(id) {
       : '「' + c.stage + '」由订单自动推进，无需手动操作' };
   }
   if (i === PRE_DEAL_STAGES.length - 1) {
-    return { code: 1, msg: '商务谈判后的阶段由「报价成交」自动推进' };
+    return { code: 1, msg: '「已报价」之后的阶段由「报价成交」自动生成订单后推进' };
   }
   c.stage = PRE_DEAL_STAGES[i + 1];
   _cloudSync("customers", "upsert", c);
@@ -490,7 +490,7 @@ async function reactivateCustomer(id) {
   const c = _customerById(id);
   if (!c) return { code: 1, msg: '客户不存在' };
   if (c.stage !== '已流失') return { code: 1, msg: '该客户不是流失状态' };
-  c.stage = '商务谈判';
+  c.stage = '已报价';
   _syncCustomerStage(id);
   const d = new Date(DB.today + 'T00:00:00');
   d.setDate(d.getDate() + 3);
@@ -772,11 +772,21 @@ async function adminUpdateCustomer(id, patch) {
   await delay(420);
   const c = _customerById(id);
   if (!c) return { code: 1, msg: '客户不存在' };
+  const ownerChanged = patch.owner && patch.owner !== c.owner;
   ['name', 'contact', 'phone', 'address', 'industry', 'owner', 'note'].forEach(k => {
     if (patch[k] != null) c[k] = patch[k];
   });
   if (patch.stage && DB.stages.includes(patch.stage)) c.stage = patch.stage;
   _cloudSync("customers", "upsert", c);
+  /* 换业务员：该客户名下的报价 / 订单一并转移给新业务员（并同步云端） */
+  if (ownerChanged) {
+    DB.quotes.forEach(q => {
+      if (q.customerId === id && q.owner !== patch.owner) { q.owner = patch.owner; _cloudSync("quotes", "upsert", q); }
+    });
+    DB.orders.forEach(o => {
+      if (o.customerId === id && o.owner !== patch.owner) { o.owner = patch.owner; _cloudSync("orders", "upsert", o); }
+    });
+  }
   return { code: 0, data: _customerView(c) };
 }
 
@@ -1099,7 +1109,12 @@ function logout() {
 function fetchSession() {
   try {
     const s = JSON.parse(localStorage.getItem('lh-crm-session') || 'null');
-    if (s && _userById(s.userId)) return s;
+    if (!s) return null;
+    if (s.active === false) { localStorage.removeItem('lh-crm-session'); return null; }
+    /* 云模式：会话在登录时已按云端校验过；页面刚加载时 DB.users 还是空壳（云端数据未拉回），
+       此时用本地 users 表判活会把非 admin 的会话误删（表现为登录后闪退回登录页） */
+    if (App.dbMode && App.dbMode() === 'cloud' && typeof App.dbList === 'function') return s;
+    if (_userById(s.userId)) return s;
   } catch (e) { /* ignore */ }
   localStorage.removeItem('lh-crm-session');
   return null;
@@ -1229,7 +1244,10 @@ async function fetchLedgers(filters) {
     refNo: p.no, customerName: '',
     note: p.title + '（' + ((DB.suppliers.find(s => s.id === p.supplierId) || {}).name || '') + '）',
   }));
-  const manual = DB.manualLedgers.map(l => ({ ...l, refNo: '', customerName: '' }));
+  const manual = DB.manualLedgers.map(l => {
+    const dec = _ledgerNoteDecode(l);
+    return { ...l, refNo: dec.refNo, note: dec.note, customerName: '', src: 'manual' };
+  });
   let list = income.concat(purchasePay, manual);
   if (f.month) list = list.filter(l => _monthOf(l.date) === f.month);
   if (f.type && f.type !== '全部') list = list.filter(l => l.type === f.type);
@@ -1285,6 +1303,13 @@ async function fetchFinanceSummary() {
 }
 
 // TODO: replace with fetch('POST /api/finance/ledgers')
+/* 手工账的关联单号借 note 字段存储（【单号】+说明），读取时解析回 refNo —— 免改表结构 */
+function _ledgerNoteEncode(refNo, note) { return refNo ? '【' + refNo.trim() + '】' + (note || '') : (note || ''); }
+function _ledgerNoteDecode(l) {
+  const m = (l.note || '').match(/^【([^】]*)】/);
+  return { refNo: m ? m[1] : '', note: m ? l.note.slice(m[0].length) : (l.note || '') };
+}
+
 async function saveManualLedger(payload) {
   await delay(480);
   const amount = Number(payload.amount);
@@ -1293,10 +1318,34 @@ async function saveManualLedger(payload) {
   if (!payload.date) return { code: 1, msg: '请选择日期' };
   const l = {
     id: _uid(), date: payload.date, type: '支出', category: payload.category,
-    amount, recorder: payload.recorder || 'u4', note: payload.note || '',
+    amount, recorder: payload.recorder || 'u4', note: _ledgerNoteEncode(payload.refNo, payload.note),
   };
   DB.manualLedgers.push(l);
-  return { code: 0, data: { ...l, refNo: '', customerName: '' } };
+  const dec = _ledgerNoteDecode(l);
+  return { code: 0, data: { ...l, refNo: dec.refNo, note: dec.note, customerName: '' } };
+}
+
+async function updateManualLedger(id, payload) {
+  await delay(420);
+  const l = DB.manualLedgers.find(x => x.id === id);
+  if (!l) return { code: 1, msg: '账目不存在（回款与采购付款生成的流水不可改）' };
+  const amount = Number(payload.amount);
+  if (!amount || amount <= 0) return { code: 1, msg: '请填写正确的金额' };
+  l.date = payload.date || l.date;
+  l.category = payload.category || l.category;
+  l.amount = amount;
+  l.note = _ledgerNoteEncode(payload.refNo, payload.note);
+  _cloudSync("manualLedgers", "upsert", l);
+  const dec = _ledgerNoteDecode(l);
+  return { code: 0, data: { ...l, refNo: dec.refNo, note: dec.note, customerName: '' } };
+}
+
+async function deleteManualLedger(id) {
+  await delay(360);
+  const i = DB.manualLedgers.findIndex(x => x.id === id);
+  if (i < 0) return { code: 1, msg: '账目不存在（回款与采购付款生成的流水不可删）' };
+  DB.manualLedgers.splice(i, 1);
+  return { code: 0 };
 }
 
 /* ============================================================

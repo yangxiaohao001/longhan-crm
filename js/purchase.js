@@ -55,15 +55,34 @@
       }).join('') : '<tr><td colspan="8"><div class="empty"><span data-icon="inbox"></span><p>暂无采购单</p></div></td></tr>') +
       '</tbody></table></div></div>' +
 
-      '<div class="card"><div class="card-head"><div class="card-title">供应商档案</div></div>' +
-      '<div class="card-body field-grid">' +
-      DB.suppliers.map(s => '<div><div class="lbl">' + s.category + '</div><b style="font-size:13px">' + App.escapeHtml(s.name) + '</b>' +
-        '<div class="sub-line">' + s.contact + ' · ' + s.phone + '</div></div>').join('') +
-      '</div></div>';
+      '<div class="card"><div class="card-head"><div class="card-title">供应商档案</div><span class="card-sub">' + DB.suppliers.length + ' 家</span></div>' +
+      '<div class="card-body table-wrap"><table class="table">' +
+      '<thead><tr><th>供应商</th><th>分类</th><th>联系人</th><th>电话</th><th></th></tr></thead><tbody>' +
+      (DB.suppliers.length ? DB.suppliers.map(s =>
+        '<tr data-sid="' + s.id + '">' +
+        '<td style="font-weight:600">' + App.escapeHtml(s.name) + '</td>' +
+        '<td><span class="badge">' + App.escapeHtml(s.category || '其他') + '</span></td>' +
+        '<td>' + App.escapeHtml(s.contact || '—') + '</td>' +
+        '<td class="num">' + App.escapeHtml(s.phone || '—') + '</td>' +
+        '<td><div class="row-actions">' +
+        '<button class="btn btn-sm" data-aredit="' + s.id + '"><span data-icon="pencil"></span>编辑</button>' +
+        '<button class="btn btn-sm btn-danger" data-adel="' + s.id + '"><span data-icon="trash-2"></span>删除</button>' +
+        '</div></td></tr>').join('')
+        : '<tr><td colspan="5"><div class="empty"><span data-icon="inbox"></span><p>暂无供应商，点右上角「供应商管理」添加</p></div></td></tr>') +
+      '</tbody></table></div></div>';
 
     root.querySelectorAll('[data-pid2]').forEach(el => el.addEventListener('click', () => openDrawer(el.dataset.pid2)));
     root.querySelectorAll('[data-st]').forEach(el => el.addEventListener('click', () => { state.status = el.dataset.st; renderList(); }));
     root.querySelectorAll('[data-act2]').forEach(el => el.addEventListener('click', () => advance(el.dataset.pid, el.dataset.act2)));
+    root.querySelectorAll('[data-aredit]').forEach(el => el.addEventListener('click', () => supplierEditModal(el.dataset.aredit, renderList)));
+    root.querySelectorAll('[data-adel]').forEach(el => el.addEventListener('click', () => App.confirm({
+      title: '删除该供应商？', html: '将从供应商档案中删除（已被采购单使用的不能删）。', okText: '删除', danger: true,
+      onOk: async () => {
+        const r = await deleteSupplier(el.dataset.adel);
+        if (r.code !== 0) return App.toast(r.msg, 'danger');
+        App.toast('供应商已删除'); renderList();
+      },
+    })));
     const kwEl = root.querySelector('#kwInput');
     const doSearch = () => { state.kw = kwEl.value; renderList(); };
     kwEl.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
@@ -137,18 +156,17 @@
       html:
         '<div class="form-grid">' +
         '<div class="form-item"><label>标题<b>*</b></label><input class="input" id="poTitle" placeholder="如：SO2026-058 批次备料"><p class="form-error"></p></div>' +
-        '<div class="form-item"><label>供应商<b>*</b></label><select class="select" id="poSup">' +
-        '<option value="">请选择</option>' +
-        DB.suppliers.map(s => '<option value="' + s.id + '">' + App.escapeHtml(s.name) + '</option>').join('') +
-        '<option value="__new__">+ 新增供应商…</option>' +
-        '</select><p class="form-error"></p></div>' +
+        '<div class="form-item"><label>供应商<b>*</b></label>' +
+        '<input class="input" id="poSup" list="supOptions" placeholder="输入名称（不存在会自动建档）或从下拉选择" autocomplete="off">' +
+        '<datalist id="supOptions">' + DB.suppliers.map(s => '<option value="' + App.escapeHtml(s.name) + '">').join('') + '</datalist>' +
+        '<p class="form-error"></p></div>' +
         '<div class="form-item" style="grid-column:1/-1"><label>为哪个订单备料</label><select class="select" id="poOrder"><option value="">备货（不关联订单）</option>' +
         orders.map(o => '<option value="' + o.id + '">' + o.no + ' · ' + App.escapeHtml((App.customerById(o.customerId) || {}).name) + '</option>').join('') + '</select></div>' +
         '</div>' +
         '<div class="field"><label>采购明细<b>*</b></label><div id="poRows"></div>' +
         '<button class="btn btn-sm" id="poAdd" style="margin-top:8px"><span data-icon="plus"></span>加一行</button></div>' +
         '<div class="form-item"><label>备注</label><input class="input" id="poNote" placeholder="交期、运费等说明"></div>',
-      foot: '<button class="btn" data-act="cancel">取消</button><button class="btn btn-primary" data-act="ok">提交申请（待老板审批）</button>',
+      foot: '<button class="btn" data-act="cancel">取消</button><button class="btn btn-primary" data-act="ok">' + (App.isBoss() ? '提交申请（自动通过审批）' : '提交申请（待老板审批）') + '</button>',
       onMount(box) {
         const rowsEl = box.querySelector('#poRows');
         function renderRows() {
@@ -176,27 +194,28 @@
           const tEl = box.querySelector('#poTitle'), sEl = box.querySelector('#poSup');
           [tEl, sEl].forEach(App.formClear);
           if (!tEl.value.trim()) return App.formError(tEl, '请填写标题');
-          if (!sEl.value) return App.formError(sEl, '请选择供应商');
-          if (sEl.value === '__new__') {
-            /* 临时打开新建供应商弹窗，保存后回填并继续 */
-            App.closeModal();
-            supplierEditModal(null, () => {
-              const fresh = DB.suppliers[DB.suppliers.length - 1];
-              if (!fresh) return;
-              addModal(fresh.id);
-            });
-            return;
+          const supName = sEl.value.trim();
+          if (!supName) return App.formError(sEl, '请填写或选择供应商');
+          /* 供应商不存在 → 自动建档（免跳转） */
+          let sup = DB.suppliers.find(s => s.name === supName);
+          if (!sup) {
+            const r = await saveSupplier({ name: supName, category: '其他' });
+            if (r.code !== 0) return App.formError(sEl, r.msg);
+            sup = r.data;
+            App.toast('已自动新建供应商「' + sup.name + '」');
           }
           const items = rows.filter(r => r.name.trim() && r.qty > 0);
           if (!items.length) return App.toast('请至少填写一行有效明细', 'danger');
           App.btnLoading(btn);
           const res = await savePurchase({
-            title: tEl.value, supplierId: sEl.value, orderId: box.querySelector('#poOrder').value,
+            title: tEl.value, supplierId: sup.id, orderId: box.querySelector('#poOrder').value,
             items, note: box.querySelector('#poNote').value, requester: sess.userId,
           });
           App.btnDone(btn);
           if (res.code !== 0) return App.toast(res.msg, 'danger');
-          App.closeModal(); App.toast('采购申请已提交，等老板审批'); renderList();
+          App.closeModal();
+          App.toast(res.data.status === '已审批' ? '采购已提交（总经理发起，自动通过审批）' : '采购申请已提交，等老板审批');
+          renderList();
         });
       },
     });
