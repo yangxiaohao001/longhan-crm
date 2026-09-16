@@ -41,7 +41,7 @@
 
       '<div class="card" style="margin-bottom:16px"><div class="card-head"><div class="card-title">应收欠款明细</div>' +
       '<div class="card-tools"><div class="search-box"><span data-icon="search"></span>' +
-      '<input class="input" id="kwInput" placeholder="搜订单 / 客户" style="width:200px" value="' + App.escapeHtml(state.kw) + '"></div></div></div>' +
+      '<input class="input" id="kwInput" placeholder="搜订单 / 客户" style="width:180px" value="' + App.escapeHtml(state.kw) + '"><button class="btn btn-sm" id="kwBtn">搜索</button></div></div></div>' +
       '<div class="card-body table-wrap"><table class="table">' +
       '<thead><tr><th>订单</th><th>客户</th>' + (App.seeAll() ? '<th>业务员</th>' : '') + '<th>订单金额</th><th>已收</th><th>欠款</th><th>约定付款日</th><th>状态</th><th></th></tr></thead><tbody>' +
       (rows.length ? rows.map(r =>
@@ -78,8 +78,10 @@
       el.addEventListener('click', () => location.href = 'orders.html?oid=' + (el.dataset.oid || el.dataset.oid2)));
     root.querySelectorAll('[data-pay]').forEach(el => el.addEventListener('click', () => payModal(el.dataset.pay)));
     const kwEl = root.querySelector('#kwInput');
-    let t;
-    kwEl.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { state.kw = kwEl.value; renderList(); }, 300); });
+    const doSearch = () => { state.kw = kwEl.value; renderList(); };
+    kwEl.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+    const kwBtn = root.querySelector('#kwBtn');
+    if (kwBtn) kwBtn.addEventListener('click', doSearch);
     root.querySelector('#monthSel').addEventListener('change', e => { state.month = e.target.value; renderList(); });
     App.mountIcons(root);
   }

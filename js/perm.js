@@ -5,7 +5,9 @@
    系统对所有账号一视同仁地支持增/删/改；总经理额外可访问设置页。
    ============================================================ */
 'use strict';
-
+/* 注意：app.js 已有一份顶层 const PERM（本文件历史上曾与其冲突导致整文件未执行）。
+   这里整体包进 IIFE，作用域内再声明一份同名常量，不再污染全局。 */
+(function () {
 const PERM = {
   modules: [
     { key: 'dashboard', name: '驾驶舱' },
@@ -65,3 +67,4 @@ function attachPerm() {
 }
 /* 同步 attach（perm.js 现在在 app.js 之后加载，App 必然已定义） */
 if (typeof App !== 'undefined') attachPerm();
+})();

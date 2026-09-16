@@ -10,6 +10,8 @@
   const sess = App.session();
   const state = { kw: '', status: '' };
   const QT_STATUSES = ['草稿', '待审批', '已发送', '已成交', '已过期', '已驳回', '已作废'];
+  const UNIT_OPTS = ['吨', '根', '件', '米', '套', '个', '平方'];
+  const unitOptions = cur => (cur && !UNIT_OPTS.includes(cur)) ? UNIT_OPTS.concat([cur]) : UNIT_OPTS;
 
   async function renderList() {
     root.innerHTML = '<div class="skeleton s-block"></div>';
@@ -20,7 +22,7 @@
     if (res.code !== 0) { root.innerHTML = '<div class="empty"><p>' + App.escapeHtml(res.msg) + '</p></div>'; return; }
     const kw = state.kw.trim();
     const list = res.data.filter(q => !kw || q.no.includes(kw) || q.customerName.includes(kw));
-    const readOnly = sess.role === 'finance';
+    const readOnly = sess.position === '财务';
 
     const pending = res.data.filter(q => q.hasApproval);
     root.innerHTML =
@@ -41,7 +43,7 @@
       '<div class="chip-row">' + [''].concat(QT_STATUSES).map(s =>
         '<button class="chip' + (state.status === s ? ' active' : '') + '" data-st="' + s + '">' + (s || '全部') + '</button>').join('') + '</div>' +
       '<div class="card-tools"><div class="search-box"><span data-icon="search"></span>' +
-      '<input class="input" id="kwInput" placeholder="搜索单号 / 客户" style="width:200px" value="' + App.escapeHtml(state.kw) + '"></div>' +
+      '<input class="input" id="kwInput" placeholder="搜索单号 / 客户" style="width:180px" value="' + App.escapeHtml(state.kw) + '"><button class="btn btn-sm" id="kwBtn">搜索</button></div>' +
       (!readOnly ? '<button class="btn btn-primary btn-sm" id="addBtn"><span data-icon="plus"></span>新建报价</button>' : '') +
       '</div></div>' +
       '<div class="card-body table-wrap"><table class="table">' +
@@ -66,8 +68,10 @@
     root.querySelectorAll('[data-rj]').forEach(el => el.addEventListener('click', () => rejectModal(el.dataset.rj)));
     root.querySelectorAll('[data-st]').forEach(el => el.addEventListener('click', () => { state.status = el.dataset.st; renderList(); }));
     const kwEl = root.querySelector('#kwInput');
-    let t;
-    kwEl.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { state.kw = kwEl.value; renderList(); }, 300); });
+    const doSearch = () => { state.kw = kwEl.value; renderList(); };
+    kwEl.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+    const kwBtn = root.querySelector('#kwBtn');
+    if (kwBtn) kwBtn.addEventListener('click', doSearch);
     const add = root.querySelector('#addBtn');
     if (add) add.addEventListener('click', addModal);
     App.mountIcons(root);
@@ -187,6 +191,7 @@
     const rows = cur.items.map(i => ({
       pid: i.productId || products.find(p => p.name === i.name)?.id || products[0].id,
       qty: i.qty, price: i.price,
+      unit: i.unit || (products.find(p => p.name === i.name) || {}).unit || '件',
     }));
     App.openModal({
       title: '调价 · ' + q.no + '（当前 v' + q.version + '）',
@@ -210,13 +215,16 @@
             return '<div class="row-actions" style="margin-bottom:8px" data-row="' + i + '">' +
               '<select class="select a-pid" style="flex:2">' +
               products.map(x => '<option value="' + x.id + '"' + (x.id === r.pid ? ' selected' : '') + '>' + x.name + ' · ' + x.spec + '</option>').join('') + '</select>' +
-              '<input class="input a-qty num" type="number" min="1" value="' + r.qty + '" style="width:90px">' +
-              '<input class="input a-price num" type="number" min="0" step="0.01" value="' + r.price + '" style="width:110px" title="单价">' +
+              '<input class="input a-qty num" type="number" min="1" value="' + r.qty + '" style="width:80px" title="数量">' +
+              '<input class="input a-price num" type="number" min="0" step="0.01" value="' + r.price + '" style="width:110px" title="单价（可改）">' +
+              '<select class="select a-unit" style="width:76px" title="单位">' +
+              unitOptions(r.unit).map(u => '<option' + (u === r.unit ? ' selected' : '') + '>' + u + '</option>').join('') + '</select>' +
               '<button class="btn btn-sm btn-danger a-del"><span data-icon="trash-2"></span></button></div>';
           }).join('');
           rowsEl.querySelectorAll('.a-pid').forEach(sel => sel.addEventListener('change', () => { rows[Number(sel.closest('[data-row]').dataset.row)].pid = sel.value; calc(); }));
           rowsEl.querySelectorAll('.a-qty').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].qty = Number(inp.value) || 1; calc(); }));
           rowsEl.querySelectorAll('.a-price').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].price = Number(inp.value) || 0; calc(); }));
+          rowsEl.querySelectorAll('.a-unit').forEach(sel => sel.addEventListener('change', () => { rows[Number(sel.closest('[data-row]').dataset.row)].unit = sel.value; }));
           rowsEl.querySelectorAll('.a-del').forEach(btn => btn.addEventListener('click', () => {
             if (rows.length === 1) return;
             rows.splice(Number(btn.closest('[data-row]').dataset.row), 1); renderRows(); calc();
@@ -224,13 +232,13 @@
           App.mountIcons(rowsEl);
         }
         renderRows(); calc();
-        box.querySelector('#adjAdd').addEventListener('click', () => { rows.push({ pid: products[0].id, qty: 1, price: 0 }); renderRows(); calc(); });
+        box.querySelector('#adjAdd').addEventListener('click', () => { rows.push({ pid: products[0].id, qty: 1, price: products[0].price, unit: products[0].unit }); renderRows(); calc(); });
         box.querySelector('[data-act="cancel"]').addEventListener('click', () => App.closeModal());
         box.querySelector('[data-act="ok"]').addEventListener('click', async e => {
           const btn = e.currentTarget;
           const items = rows.map(r => {
             const p = products.find(x => x.id === r.pid);
-            return { productId: p.id, name: p.name, spec: p.spec, unit: p.unit, qty: r.qty, price: r.price };
+            return { productId: p.id, name: p.name, spec: p.spec, unit: r.unit, qty: r.qty, price: r.price };
           });
           App.btnLoading(btn);
           const res = await createQuoteVersion(q.id, { items, note: box.querySelector('#adjNote').value });
@@ -247,7 +255,7 @@
   /* ---------- 新建报价（产品行编辑） ---------- */
   function addModal() {
     const products = DB.products;
-    let rows = [{ pid: products[0].id, qty: 1 }];
+    let rows = [{ pid: products[0].id, qty: 1, price: products[0].price, unit: products[0].unit }];
     App.openModal({
       title: '新建报价',
       wide: true,
@@ -268,10 +276,7 @@
         const rowsEl = box.querySelector('#qRows');
         const totalEl = box.querySelector('#qTotal');
         function calc() {
-          const total = rows.reduce((s, r) => {
-            const p = products.find(x => x.id === r.pid);
-            return s + (p ? p.price * r.qty : 0);
-          }, 0);
+          const total = rows.reduce((s, r) => s + (r.price || 0) * (r.qty || 0), 0);
           totalEl.textContent = App.fmtMoney(total);
         }
         function renderRows() {
@@ -280,19 +285,34 @@
             return '<div class="row-actions" style="margin-bottom:8px" data-row="' + i + '">' +
               '<select class="select q-pid" style="flex:2">' +
               products.map(x => '<option value="' + x.id + '"' + (x.id === r.pid ? ' selected' : '') + '>' + x.name + ' · ' + x.spec + '</option>').join('') + '</select>' +
-              '<input class="input q-qty num" type="number" min="1" value="' + r.qty + '" style="flex:1;width:80px" placeholder="数量">' +
-              '<span class="money q-sub" style="flex:none;width:100px;text-align:right">' + App.fmtMoney((p.price || 0) * r.qty) + '</span>' +
+              '<input class="input q-qty num" type="number" min="1" value="' + r.qty + '" style="width:80px" placeholder="数量" title="数量">' +
+              '<input class="input q-price num" type="number" min="0" step="0.01" value="' + r.price + '" style="width:110px" placeholder="单价" title="单价（可改）">' +
+              '<select class="select q-unit" style="width:76px" title="单位">' +
+              unitOptions(r.unit || p.unit).map(u => '<option' + (u === (r.unit || p.unit) ? ' selected' : '') + '>' + u + '</option>').join('') + '</select>' +
+              '<span class="money q-sub" style="flex:none;width:100px;text-align:right">' + App.fmtMoney((r.price || 0) * r.qty) + '</span>' +
               '<button class="btn btn-sm btn-danger q-del"' + (rows.length === 1 ? ' disabled' : '') + '><span data-icon="trash-2"></span></button></div>';
           }).join('');
           rowsEl.querySelectorAll('.q-pid').forEach(sel => sel.addEventListener('change', () => {
             const i = Number(sel.closest('[data-row]').dataset.row);
-            rows[i].pid = sel.value; renderRows(); calc();
+            const p = products.find(x => x.id === sel.value);
+            /* 换产品：单价/单位带出产品库默认值（单价仍可手改） */
+            rows[i].pid = sel.value;
+            rows[i].price = p ? p.price : rows[i].price;
+            rows[i].unit = p ? p.unit : rows[i].unit;
+            renderRows(); calc();
           }));
           rowsEl.querySelectorAll('.q-qty').forEach(inp => inp.addEventListener('input', () => {
             const i = Number(inp.closest('[data-row]').dataset.row);
             rows[i].qty = Math.max(1, Number(inp.value) || 1); calc();
-            const p = products.find(x => x.id === rows[i].pid);
-            inp.closest('[data-row]').querySelector('.q-sub').textContent = App.fmtMoney((p ? p.price : 0) * rows[i].qty);
+            inp.closest('[data-row]').querySelector('.q-sub').textContent = App.fmtMoney((rows[i].price || 0) * rows[i].qty);
+          }));
+          rowsEl.querySelectorAll('.q-price').forEach(inp => inp.addEventListener('input', () => {
+            const i = Number(inp.closest('[data-row]').dataset.row);
+            rows[i].price = Number(inp.value) || 0; calc();
+            inp.closest('[data-row]').querySelector('.q-sub').textContent = App.fmtMoney(rows[i].price * rows[i].qty);
+          }));
+          rowsEl.querySelectorAll('.q-unit').forEach(sel => sel.addEventListener('change', () => {
+            rows[Number(sel.closest('[data-row]').dataset.row)].unit = sel.value;
           }));
           rowsEl.querySelectorAll('.q-del').forEach(btn => btn.addEventListener('click', () => {
             const i = Number(btn.closest('[data-row]').dataset.row);
@@ -301,7 +321,7 @@
           App.mountIcons(rowsEl);
         }
         renderRows(); calc();
-        box.querySelector('#qAddRow').addEventListener('click', () => { rows.push({ pid: products[0].id, qty: 1 }); renderRows(); calc(); });
+        box.querySelector('#qAddRow').addEventListener('click', () => { rows.push({ pid: products[0].id, qty: 1, price: products[0].price, unit: products[0].unit }); renderRows(); calc(); });
         box.querySelector('[data-act="cancel"]').addEventListener('click', () => App.closeModal());
         box.querySelector('[data-act="ok"]').addEventListener('click', async e => {
           const btn = e.currentTarget;
@@ -311,7 +331,7 @@
           App.btnLoading(btn);
           const items = rows.map(r => {
             const p = products.find(x => x.id === r.pid);
-            return { productId: p.id, name: p.name, spec: p.spec, unit: p.unit, qty: r.qty, price: p.price };
+            return { productId: p.id, name: p.name, spec: p.spec, unit: r.unit, qty: r.qty, price: r.price };
           });
           const res = await saveQuote({
             customerId: cSel.value, items, owner: sess.userId, note: box.querySelector('#qNote').value,

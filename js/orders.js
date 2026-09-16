@@ -48,7 +48,7 @@
       '<div class="chip-row">' + [''].concat(ORDER_FLOW).map(s =>
         '<button class="chip' + (state.stage === s ? ' active' : '') + '" data-stage="' + s + '">' + (s || '全部') + '</button>').join('') + '</div>' +
       '<div class="card-tools"><div class="search-box"><span data-icon="search"></span>' +
-      '<input class="input" id="kwInput" placeholder="搜索单号 / 客户名" style="width:220px" value="' + App.escapeHtml(state.kw) + '"></div>' +
+      '<input class="input" id="kwInput" placeholder="搜索单号 / 客户名" style="width:190px" value="' + App.escapeHtml(state.kw) + '"><button class="btn btn-sm" id="kwBtn">搜索</button></div>' +
       '<button class="btn btn-sm" id="tabKanban"><span data-icon="columns-2"></span>生产看板</button></div>' +
       '</div><div class="card-body table-wrap"><table class="table">' +
       '<thead><tr><th>订单号</th><th>客户</th><th>金额</th><th>已收</th><th>欠款</th><th>状态</th><th>下单 / 交期</th>' + (App.seeAll() ? '<th>业务员</th>' : '') + '<th>下一步</th></tr></thead><tbody>' +
@@ -81,8 +81,10 @@
     root.querySelectorAll('[data-adv]').forEach(el => el.addEventListener('click', () => advance(el.dataset.adv)));
     root.querySelectorAll('[data-stage]').forEach(el => el.addEventListener('click', () => { state.stage = el.dataset.stage; renderList(); }));
     const kwEl = root.querySelector('#kwInput');
-    let t;
-    kwEl.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { state.kw = kwEl.value; renderList(); }, 300); });
+    const doSearch = () => { state.kw = kwEl.value; renderList(); };
+    kwEl.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+    const kwBtn = root.querySelector('#kwBtn');
+    if (kwBtn) kwBtn.addEventListener('click', doSearch);
     root.querySelector('#tabKanban').addEventListener('click', () => { state.tab = 'kanban'; render(); });
     App.mountIcons(root);
   }
@@ -284,7 +286,7 @@
     }
     if (res.code === 2) {
       /* 定金不足：仅老板可强制 */
-      if (App.session().role === 'boss') {
+      if (App.isBoss()) {
         App.confirm({
           title: '定金未达标，确认发货？',
           html: res.msg + '<br><br>强制发货将记录本次操作。请确认已与客户口头约定。',

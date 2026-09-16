@@ -1022,6 +1022,13 @@ async function resolveReminder(id) {
    ============================================================ */
 
 // TODO: replace with fetch('POST /api/login')
+/* scopes 为空/未配置时的兜底：总经理全量；其他岗位默认开放常用模块（避免新账号登录后什么都看不到） */
+const DEFAULT_SCOPES = ['dashboard', 'customers', 'quotes', 'orders', 'payments', 'purchase', 'reminders'];
+function userScopes(u) {
+  if (!u) return [];
+  if (u.position === '总经理') return ['*'];
+  return (Array.isArray(u.scopes) && u.scopes.length) ? u.scopes : DEFAULT_SCOPES;
+}
 async function login(userId, pwd) {
   await delay(600);
   /* 云模式：直接从云端 users 表校验（确保新增账号能登） */
@@ -1032,7 +1039,7 @@ async function login(userId, pwd) {
       if (!u) return { code: 1, msg: '账号不存在（云端共 ' + list.length + ' 个账号）' };
       if (u.active === false) return { code: 1, msg: '该账号已停用，请联系总经理' };
       if ((u.pwd || '123456') !== pwd) return { code: 1, msg: '密码不正确' };
-      const s = { userId: u.id, name: u.name, position: u.position, initial: u.initial, loginAt: DB.today, userName: u.user_name, scopes: u.scopes || [], active: u.active };
+      const s = { userId: u.id, name: u.name, position: u.position, initial: u.initial, loginAt: DB.today, userName: u.user_name, scopes: userScopes(u), active: u.active };
       localStorage.setItem('lh-crm-session', JSON.stringify(s));
       return { code: 0, data: s };
     }
@@ -1053,7 +1060,7 @@ async function login(userId, pwd) {
           if (!u) return { code: 1, msg: '账号不存在（云端共 ' + list.length + ' 个账号）' };
           if (u.active === false) return { code: 1, msg: '该账号已停用' };
           if ((u.pwd || '123456') !== pwd) return { code: 1, msg: '密码不正确' };
-          const s = { userId: u.id, name: u.name, position: u.position, initial: u.initial, loginAt: DB.today, userName: u.user_name, scopes: u.scopes || [], active: u.active };
+          const s = { userId: u.id, name: u.name, position: u.position, initial: u.initial, loginAt: DB.today, userName: u.user_name, scopes: userScopes(u), active: u.active };
           localStorage.setItem('lh-crm-session', JSON.stringify(s));
           return { code: 0, data: s };
         }
@@ -1065,7 +1072,7 @@ async function login(userId, pwd) {
   if (!u) return { code: 1, msg: '账号不存在' };
   if ((u.pwd || '123456') !== pwd) return { code: 1, msg: '密码不正确（演示密码 123456）' };
   if (u.active === false) return { code: 1, msg: '该账号已停用，请联系总经理' };
-  const s = { userId: u.id, name: u.name, position: u.position, initial: u.initial, loginAt: DB.today, userName: u.userName, scopes: u.scopes, active: u.active };
+  const s = { userId: u.id, name: u.name, position: u.position, initial: u.initial, loginAt: DB.today, userName: u.userName, scopes: userScopes(u), active: u.active };
   localStorage.setItem('lh-crm-session', JSON.stringify(s));
   return { code: 0, data: s };
 }

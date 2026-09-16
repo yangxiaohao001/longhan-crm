@@ -12,18 +12,21 @@
   async function renderList() {
     root.innerHTML = '<div class="skeleton s-block"></div>';
     const filters = {};
-    if (state.stage) filters.stage = state.stage;
-    if (state.industry) filters.industry = state.industry;
     if (!App.seeAll()) filters.owner = sess.userId;      /* 业务员默认只看自己 */
-    if (sess.role === 'finance') filters.excludeLost = true;
+    if (sess.position === '财务') filters.excludeLost = true;
     const res = await fetchCustomers(filters);
     if (res.code !== 0) { root.innerHTML = '<div class="empty"><p>' + App.escapeHtml(res.msg) + '</p></div>'; return; }
     const kw = state.kw.trim();
+    /* 阶段/行业/关键词都在前端筛：res.data 是全量（仅按人过滤），chip 总数以此为准 */
     const list = res.data.filter(c =>
-      !kw || c.name.includes(kw) || c.contact.includes(kw) || (c.phone || '').replace(/\s/g, '').includes(kw.replace(/\s/g, '')));
+      (!state.stage || c.stage === state.stage) &&
+      (!state.industry || c.industry === state.industry) &&
+      (!kw || c.name.includes(kw) || c.contact.includes(kw) || (c.phone || '').replace(/\s/g, '').includes(kw.replace(/\s/g, ''))));
+    const stageCounts = {};
+    res.data.forEach(c => { stageCounts[c.stage] = (stageCounts[c.stage] || 0) + 1; });
     const stages = [''].concat(DB.stages);
-    const industries = [''].concat([...new Set(DB.customers.map(c => c.industry))].sort());
-    const readOnly = sess.role === 'finance';
+    const industries = [''].concat([...new Set(res.data.map(c => c.industry).filter(Boolean))].sort());
+    const readOnly = sess.position === '财务';
 
     root.innerHTML =
       (readOnly ? '<div class="view-banner"><span data-icon="shield-check"></span>财务视角：客户档案只读，可查看欠款与回款</div>'
@@ -31,11 +34,12 @@
 
       '<div class="card"><div class="card-head">' +
       '<div class="chip-row" id="stageChips">' + stages.map(s =>
-        '<button class="chip' + (state.stage === s ? ' active' : '') + '" data-stage="' + s + '">' + (s || '全部阶段') + '</button>').join('') + '</div>' +
+        '<button class="chip' + (state.stage === s ? ' active' : '') + '" data-stage="' + s + '">' + (s || '全部阶段') +
+        (s ? ' (' + (stageCounts[s] || 0) + ')' : ' (' + res.data.length + ')') + '</button>').join('') + '</div>' +
       '<div class="card-tools">' +
       '<select class="select" id="indSel" style="width:130px"><option value="">全部行业</option>' +
       industries.filter(Boolean).map(i => '<option' + (state.industry === i ? ' selected' : '') + '>' + i + '</option>').join('') + '</select>' +
-      '<div class="search-box"><span data-icon="search"></span><input class="input" id="kwInput" placeholder="搜索公司 / 联系人 / 电话" style="width:210px" value="' + App.escapeHtml(state.kw) + '"></div>' +
+      '<div class="search-box"><span data-icon="search"></span><input class="input" id="kwInput" placeholder="搜索公司 / 联系人 / 电话" style="width:190px" value="' + App.escapeHtml(state.kw) + '"><button class="btn btn-sm" id="kwBtn">搜索</button></div>' +
       (!readOnly ? '<button class="btn btn-primary btn-sm" id="addBtn"><span data-icon="user-plus"></span>新建客户</button>' : '') +
       '</div></div>' +
       '<div class="card-body table-wrap"><table class="table">' +
@@ -61,8 +65,10 @@
     root.querySelectorAll('#stageChips .chip').forEach(el => el.addEventListener('click', () => { state.stage = el.dataset.stage; renderList(); }));
     root.querySelector('#indSel').addEventListener('change', e => { state.industry = e.target.value; renderList(); });
     const kwEl = root.querySelector('#kwInput');
-    let t;
-    kwEl.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { state.kw = kwEl.value; renderList(); }, 300); });
+    const doSearch = () => { state.kw = kwEl.value; renderList(); };
+    kwEl.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+    const kwBtn = root.querySelector('#kwBtn');
+    if (kwBtn) kwBtn.addEventListener('click', doSearch);
     const addBtn = root.querySelector('#addBtn');
     if (addBtn) addBtn.addEventListener('click', addModal);
     App.mountIcons(root);
@@ -73,7 +79,7 @@
     const res = await fetchCustomerDetail(id);
     if (res.code !== 0) { App.toast(res.msg, 'danger'); return; }
     const d = res.data, c = d.customer;
-    const readOnly = sess.role === 'finance';
+    const readOnly = sess.position === '财务';
     const bar = DB.stages.map((s, i) => '<i class="' + (i <= c.stageIndex ? 'done' : '') + '"></i>').join('');
 
     App.openDrawer({
@@ -224,7 +230,6 @@
 
   /* ---------- 新建客户 ---------- */
   function addModal() {
-    const sales = DB.users.filter(u => u.role === 'sales');
     App.openModal({
       title: '新建客户',
       html:
@@ -234,10 +239,6 @@
         '<div class="form-item"><label>联系人<b>*</b></label><input class="input" id="nContact"><p class="form-error"></p></div>' +
         '<div class="form-item"><label>联系电话<b>*</b></label><input class="input" id="nPhone"><p class="form-error"></p></div>' +
         '<div class="form-item" style="grid-column:1/-1"><label>收货地址</label><input class="input" id="nAddress"></div>' +
-        (App.can('customer.editAll')
-          ? '<div class="form-item" style="grid-column:1/-1"><label>指派业务员</label><select class="select" id="nOwner">' +
-          DB.users.filter(u => u.role === 'sales').map(u => '<option value="' + u.id + '"' + (u.id === sess.userId ? ' selected' : '') + '>' + App.escapeHtml(u.name) + ' · ' + u.title + '</option>').join('') + '</select></div>'
-          : '') +
         '<div class="form-item" style="grid-column:1/-1"><label>备注</label><textarea class="textarea" id="nNote" placeholder="客户偏好、账期要求等"></textarea></div>' +
         '</div>',
       foot: '<button class="btn" data-act="cancel">取消</button><button class="btn btn-primary" data-act="ok">建档</button>',
@@ -255,7 +256,7 @@
             name: nameEl.value, contact: ctEl.value, phone: phEl.value,
             address: box.querySelector('#nAddress').value, industry: box.querySelector('#nIndustry').value,
             note: box.querySelector('#nNote').value,
-            owner: box.querySelector('#nOwner') ? box.querySelector('#nOwner').value : sess.userId,
+            owner: sess.userId,
           });
           App.btnDone(btn);
           if (res.code !== 0) return App.toast(res.msg, 'danger');

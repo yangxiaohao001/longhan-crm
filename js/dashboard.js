@@ -193,10 +193,10 @@
       const w = () => (typeof App.canRoute === 'function') ? r() : (Date.now() - t0 < 3000 ? setTimeout(w, 30) : r());
       w();
     });
-    if (sess.role === 'finance') { renderFinance(); return; }
+    if ((sess.position || '') === '财务') { renderFinance(); return; }
     const res = await fetchDashboardSummary();
     if (res.code !== 0) { root.innerHTML = '<div class="empty"><p>加载失败，请刷新</p></div>'; return; }
-    if (sess.role === 'boss') renderBoss(res.data); else renderSales(res.data);
+    if (sess.position === '总经理') renderBoss(res.data); else renderSales(res.data);
     bindCountUp();
     root.querySelectorAll('[data-cid]').forEach(el =>
       el.addEventListener('click', () => location.href = 'customers.html?cid=' + el.dataset.cid));

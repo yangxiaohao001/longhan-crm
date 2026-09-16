@@ -29,7 +29,7 @@
       '<div class="chip-row">' + [''].concat(FLOW).map(s =>
         '<button class="chip' + (state.status === s ? ' active' : '') + '" data-st="' + s + '">' + (s || '全部') + '</button>').join('') + '</div>' +
       '<div class="card-tools"><div class="search-box"><span data-icon="search"></span>' +
-      '<input class="input" id="kwInput" placeholder="搜单号 / 标题 / 供应商" style="width:210px" value="' + App.escapeHtml(state.kw) + '"></div>' +
+      '<input class="input" id="kwInput" placeholder="搜单号 / 标题 / 供应商" style="width:180px" value="' + App.escapeHtml(state.kw) + '"><button class="btn btn-sm" id="kwBtn">搜索</button></div>' +
       (canReq ? '<button class="btn btn-primary btn-sm" id="addBtn"><span data-icon="plus"></span>发起采购申请</button>' : '') +
       (App.isBoss() || App.can('purchase.request') ? '<button class="btn btn-sm" id="supBtn"><span data-icon="building-2"></span>供应商管理</button>' : '') +
       '</div></div>' +
@@ -65,8 +65,10 @@
     root.querySelectorAll('[data-st]').forEach(el => el.addEventListener('click', () => { state.status = el.dataset.st; renderList(); }));
     root.querySelectorAll('[data-act2]').forEach(el => el.addEventListener('click', () => advance(el.dataset.pid, el.dataset.act2)));
     const kwEl = root.querySelector('#kwInput');
-    let t;
-    kwEl.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { state.kw = kwEl.value; renderList(); }, 300); });
+    const doSearch = () => { state.kw = kwEl.value; renderList(); };
+    kwEl.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+    const kwBtn = root.querySelector('#kwBtn');
+    if (kwBtn) kwBtn.addEventListener('click', doSearch);
     const add = root.querySelector('#addBtn');
     if (add) add.addEventListener('click', addModal);
     const supBtn = root.querySelector('#supBtn');
