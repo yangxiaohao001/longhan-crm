@@ -171,6 +171,7 @@
         })()) +
 
         '<div class="row-actions">' +
+        '<button class="btn" id="qPrintBtn"><span data-icon="download"></span>打印 / 导出 PDF</button>' +
         (canEdit && ['草稿', '已驳回'].includes(q.status) ? '<button class="btn btn-primary" id="qSubmit"><span data-icon="send"></span>提交审批</button>' : '') +
         (canEdit && q.status === '已发送' ? '<button class="btn btn-primary" id="qDeal"><span data-icon="check-circle"></span>标记成交（自动生成订单）</button>' : '') +
         (canEdit && q.status === '已发送' ? '<button class="btn" id="qAdjust"><span data-icon="pencil"></span>调价（新版本）</button>' : '') +
@@ -200,6 +201,8 @@
             App.closeDrawer(); renderList();
           },
         }));
+        const pb = box.querySelector('#qPrintBtn');
+        if (pb) pb.addEventListener('click', () => buildPrintDoc(q, ver));
         const adj = box.querySelector('#qAdjust');
         if (adj) adj.addEventListener('click', () => adjustModal(q));
         const del = box.querySelector('#qDel');
@@ -307,6 +310,70 @@
         });
       },
     });
+  }
+
+  /* ---------- 人民币大写（用于报价单打印） ---------- */
+  function rmbUpper(n) {
+    n = Math.round(n * 100) / 100;
+    const frac = Math.round((n % 1) * 100); const ints = Math.floor(n);
+    const D = '零壹贰叁肆伍陆柒捌玖'; const U = ['', '拾', '佰', '仟']; const G = ['', '万', '亿', '兆'];
+    if (!ints && !frac) return '零元整';
+    let s = '', gi = 0, x = ints;
+    while (x > 0) {
+      const seg = x % 10000;
+      if (seg) {
+        let t = '', z = false, v = seg;
+        for (let u = 0; v > 0; u++) {
+          const d = v % 10;
+          if (d === 0) { if (!z && t) { t = '零' + t; z = true; } }
+          else { t = D[d] + U[u] + t; z = false; }
+          v = Math.floor(v / 10);
+        }
+        s = t + G[gi] + s;
+      } else if (s && !s.startsWith('零')) s = '零' + s;
+      x = Math.floor(x / 10000); gi++;
+    }
+    s += ints ? '元' : '';
+    if (frac === 0) s += '整';
+    else {
+      const j = Math.floor(frac / 10), f = frac % 10;
+      s += (j ? D[j] + '角' : (ints ? '零' : ''));
+      if (f) s += D[f] + '分'; else if (!j) s += '整';
+    }
+    return '人民币' + s;
+  }
+
+  /* ---------- 生成正式报价单打印视图（浏览器打印对话框中选"另存为 PDF"） ---------- */
+  function buildPrintDoc(q, ver) {
+    const esc = App.escapeHtml;
+    const cust = q.customer || {};
+    const items = ver.items.map((i, idx) =>
+      '<tr><td style="text-align:center">' + (idx + 1) + '</td>' +
+      '<td>' + esc(i.name) + '</td><td>' + esc(i.spec || '') + '</td>' +
+      '<td style="text-align:center">' + esc(i.unit || '') + '</td>' +
+      '<td style="text-align:right">' + i.qty + '</td>' +
+      '<td style="text-align:right">' + App.fmtMoney(i.price) + '</td>' +
+      '<td style="text-align:right">' + App.fmtMoney(i.qty * i.price) + '</td></tr>').join('');
+    let area = document.getElementById('printArea');
+    if (!area) { area = document.createElement('div'); area.id = 'printArea'; document.body.appendChild(area); }
+    area.innerHTML =
+      '<div class="pr-company">河北龙瀚金属制品有限公司</div>' +
+      '<div class="pr-title">报  价  单</div>' +
+      '<div class="pr-row"><span>NO：' + esc(q.no) + '</span><span>报价日期：' + esc(q.createdAt) + '</span></div>' +
+      '<div class="pr-row"><span>客户名称：' + esc(q.customerName) + '</span><span>联系人：' + esc(cust.contact || '') + (cust.phone ? ' / ' + esc(cust.phone) : '') + '</span></div>' +
+      '<table><thead><tr><th style="width:36px">序号</th><th>产品名称</th><th>规格 / 材质说明</th><th style="width:48px">单位</th><th style="width:60px">数量</th><th style="width:82px">单价（元）</th><th style="width:92px">小计（元）</th></tr></thead><tbody>' +
+      items +
+      '</tbody></table>' +
+      '<div class="pr-row" style="margin-top:8px"><span>合计金额：<b>' + rmbUpper(q.total) + '</b></span><span>（小写：¥' + App.fmtMoney(q.total) + '）</span></div>' +
+      '<div class="pr-note">' +
+      '<div>报价说明：</div>' +
+      '<div>1、本报价为出厂含税价（增值税税率 13%），不含运输、安装及现场配合费用。</div>' +
+      '<div>2、报价有效期：至 ' + esc(q.validUntil || '出具之日起 30 天') + '（逾期或主要原材料价格波动超过 ±5% 时，价格另行协商）。</div>' +
+      '<div>3、付款方式：合同签订后预付 50%，发货前结清全部余款。</div>' +
+      '<div>4、交货周期：确认订单后 5-7 个工作日（特殊规格另行确认）。</div>' +
+      '</div>' +
+      '<div class="pr-sign"><span>报价人（业务员）：' + esc(q.ownerName) + '</span><span>审核人：______________</span><span>（公司盖章）</span></div>';
+    try { window.print(); } catch (e) { /* 部分环境禁用打印，忽略 */ }
   }
 
   /* ---------- Excel / CSV 表格解析：识别表头列，导出报价明细行 ---------- */

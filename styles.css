@@ -726,3 +726,20 @@ html[data-theme="light"] .att-page { box-shadow: 0 2px 8px rgba(15, 23, 42, .18)
 /* ---------- 列表批量选择 ---------- */
 .row-chk, .chk-all { width: 15px; height: 15px; accent-color: var(--primary); cursor: pointer; vertical-align: middle; }
 #batchBar .batch-del, #batchBar .batch-cancel { margin: 0; }
+
+/* ---------- 报价单打印 / 导出 PDF ---------- */
+#printArea { display: none; }
+@media print {
+  body > *:not(#printArea) { display: none !important; }
+  #printArea { display: block !important; font-family: "SimSun", "Songti SC", "Microsoft YaHei", serif; color: #000; background: #fff; font-size: 13px; line-height: 1.7; }
+  #printArea .pr-company { text-align: center; font-size: 21px; font-weight: 700; letter-spacing: 3px; }
+  #printArea .pr-title { text-align: center; font-size: 17px; margin: 4px 0 12px; letter-spacing: 6px; }
+  #printArea .pr-row { display: flex; justify-content: space-between; font-size: 12.5px; margin: 3px 0; }
+  #printArea table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0; }
+  #printArea th, #printArea td { border: 1px solid #000; padding: 5px 7px; word-break: break-all; }
+  #printArea th { background: #f0f0f0; text-align: center; }
+  #printArea .pr-note { font-size: 12px; margin-top: 10px; }
+  #printArea .pr-note div { margin: 1px 0; }
+  #printArea .pr-sign { display: flex; justify-content: space-between; margin-top: 28px; font-size: 12.5px; }
+  @page { margin: 15mm 13mm; }
+}
