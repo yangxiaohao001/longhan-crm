@@ -143,7 +143,14 @@
         if (adv) adv.addEventListener('click', async () => {
           const r = await advanceCustomerStage(id);
           if (r.code !== 0) return App.toast(r.msg, 'danger');
-          App.toast('已推进到「' + r.data.stage + '」'); App.closeDrawer(); renderList();
+          App.closeDrawer(); renderList();
+          if (r.data.stage === '已报价') {
+            App.confirm({
+              title: '客户已推进到「已报价」',
+              html: '要不要立即为「' + App.escapeHtml(r.data.name) + '」创建报价单？<br>报价单创建并审批通过后，客户会自动推进到已下单。',
+              okText: '立即创建报价', onOk: () => { location.href = 'quotes.html?new=1&cid=' + id; },
+            });
+          } else App.toast('已推进到「' + r.data.stage + '」');
         });
         const fl = box.querySelector('#cFollow');
         if (fl) fl.addEventListener('click', () => followModal(id));

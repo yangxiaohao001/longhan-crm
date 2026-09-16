@@ -212,9 +212,17 @@
       html:
         '<div class="form-hint" style="margin-bottom:12px">已发送的报价调价会自动回到「待审批」，由老板批复后生效。</div>' +
         '<div class="field"><label>调整原因</label><input class="input" id="adjNote" placeholder="如：锌价上调，角钢单价上调 50 元"></div>' +
-        '<div class="field"><label>明细<b>*</b></label><div id="adjRows"></div><datalist id="aProdList">' + products.map(x => '<option value="' + App.escapeHtml(x.name) + '">').join('') + '</datalist>' +
+        '<div class="field"><label>明细<b>*</b></label>' +
+        '<div style="margin-bottom:4px"><div class="row-actions" style="flex-wrap:wrap">' +
+        '<div style="flex:1.2;min-width:150px;font-size:11.5px;color:var(--ink-faint)">产品名称（可输入或下拉选择）</div>' +
+        '<div style="flex:1.3;min-width:140px;font-size:11.5px;color:var(--ink-faint)">规格</div>' +
+        '<div style="width:74px;font-size:11.5px;color:var(--ink-faint)">数量</div>' +
+        '<div style="width:108px;font-size:11.5px;color:var(--ink-faint)">单价（元）</div>' +
+        '<div style="width:72px;font-size:11.5px;color:var(--ink-faint)">单位</div>' +
+        '<div style="width:34px"></div></div></div>' +
+        '<div id="adjRows"></div><datalist id="aProdList">' + products.map(x => '<option value="' + App.escapeHtml(x.name) + '">').join('') + '</datalist>' +
         '<button class="btn btn-sm" id="adjAdd" style="margin-top:8px"><span data-icon="plus"></span>加一行</button></div>' +
-        '<div class="view-banner" style="margin:0"><span data-icon="coins"></span>新版本合计：<b class="money" id="adjTotal" style="margin-left:6px">¥0</b></div>',
+        '<div class="view-banner" style="margin:0"><span data-icon="coins"></span>新版本报价总金额（客户看到的总价）：<b class="money" id="adjTotal" style="margin-left:6px;font-size:16px">¥0</b></div>',
       foot: '<button class="btn" data-act="cancel">取消</button><button class="btn btn-primary" data-act="ok">提交新版本</button>',
       onMount(box) {
         const rowsEl = box.querySelector('#adjRows');
@@ -279,8 +287,47 @@
     });
   }
 
+  /* ---------- Excel / CSV 表格解析：识别表头列，导出报价明细行 ---------- */
+  function parseGrid(grid) {
+    const norm = x => String(x == null ? '' : x).trim();
+    const KEY = { name: ['产品', '品名', '名称', '材料', '物料', '货品'], spec: ['规格', '型号'], qty: ['数量'], price: ['单价', '价格'], unit: ['单位'], cust: ['客户'] };
+    let headIdx = -1, map = null;
+    for (let i = 0; i < Math.min(grid.length, 8); i++) {
+      const row = (grid[i] || []).map(norm);
+      const m = {}; let hits = 0;
+      Object.keys(KEY).forEach(k => {
+        const idx = row.findIndex(cell => KEY[k].some(kw => cell.includes(kw)));
+        if (idx >= 0) { m[k] = idx; hits++; }
+      });
+      if (hits >= 2) { headIdx = i; map = m; break; }
+    }
+    const num = x => Number(String(x == null ? '' : x).replace(/[^\d.]/g, '')) || 0;
+    const out = []; let custName = '';
+    if (headIdx >= 0) {
+      if (map.cust != null) {
+        for (let i = headIdx + 1; i < grid.length; i++) {
+          const v = norm((grid[i] || [])[map.cust]);
+          if (v) { custName = v; break; }
+        }
+      }
+      for (let i = headIdx + 1; i < grid.length; i++) {
+        const row = grid[i] || [];
+        const name = norm(map.name != null ? row[map.name] : '');
+        if (!name) continue;
+        out.push({ pid: '', name, spec: norm(map.spec != null ? row[map.spec] : ''), qty: Math.max(1, num(map.qty != null ? row[map.qty] : '') || 1), price: num(map.price != null ? row[map.price] : ''), unit: norm(map.unit != null ? row[map.unit] : '') || '件' });
+      }
+    } else {
+      for (const row of grid) {
+        const cells = (row || []).map(norm);
+        if (!cells[0]) continue;
+        out.push({ pid: '', name: cells[0], spec: norm(cells[1]), qty: Math.max(1, num(cells[2]) || 1), price: num(cells[3]), unit: '件' });
+      }
+    }
+    return { rows: out, custName };
+  }
+
   /* ---------- 新建报价（产品行编辑） ---------- */
-  function addModal() {
+  function addModal(preCid) {
     const products = DB.products;
     let rows = [{ pid: products[0].id, name: products[0].name, spec: products[0].spec, qty: 1, price: products[0].price, unit: products[0].unit }];
     App.openModal({
@@ -295,13 +342,61 @@
         '</select><p class="form-error"></p></div>' +
         '<div class="form-item"><label>备注</label><input class="input" id="qNote" placeholder="选填"></div>' +
         '</div>' +
-        '<div class="field"><label>产品明细<b>*</b></label><div id="qRows"></div><datalist id="qProdList">' + products.map(x => '<option value="' + App.escapeHtml(x.name) + '">').join('') + '</datalist>' +
+        '<div class="field"><label>产品明细<b>*</b></label>' +
+        '<div class="import-row" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
+        '<button class="btn btn-sm" id="qImport"><span data-icon="file-spreadsheet"></span>导入 Excel / CSV 表格</button>' +
+        '<span class="sub-line" id="qImportMsg">自动识别列：产品名 / 规格 / 数量 / 单价 / 单位 / 客户名（图片识别功能开发中）</span></div>' +
+        '<div id="qHead" style="margin-bottom:4px">' +
+        '<div class="row-actions" style="flex-wrap:wrap">' +
+        '<div style="flex:1.2;min-width:150px;font-size:11.5px;color:var(--ink-faint)">① 产品名称（可输入或下拉选择）</div>' +
+        '<div style="flex:1.3;min-width:140px;font-size:11.5px;color:var(--ink-faint)">② 规格</div>' +
+        '<div style="width:74px;font-size:11.5px;color:var(--ink-faint)">③ 数量</div>' +
+        '<div style="width:108px;font-size:11.5px;color:var(--ink-faint)">④ 单价（元）</div>' +
+        '<div style="width:72px;font-size:11.5px;color:var(--ink-faint)">⑤ 单位</div>' +
+        '<div style="width:96px;font-size:11.5px;color:var(--ink-faint);text-align:right">小计</div>' +
+        '<div style="width:34px"></div></div></div>' +
+        '<div id="qRows"></div><datalist id="qProdList">' + products.map(x => '<option value="' + App.escapeHtml(x.name) + '">').join('') + '</datalist>' +
         '<button class="btn btn-sm" id="qAddRow" style="margin-top:8px"><span data-icon="plus"></span>加一行</button><p class="form-error" id="qRowsErr"></p></div>' +
-        '<div class="view-banner" style="margin:0"><span data-icon="coins"></span>合计：<b class="money" id="qTotal" style="margin-left:6px">¥0</b></div>',
+        '<div class="import-total" style="margin:0"><span data-icon="coins"></span>报价总金额（客户看到的总价）：<b class="money" id="qTotal" style="margin-left:6px;font-size:16px">¥0</b></div>',
       foot: '<button class="btn" data-act="cancel">取消</button><button class="btn btn-primary" data-act="ok">保存草稿</button>',
       onMount(box) {
+        if (preCid) { const sel = box.querySelector('#qCust'); if (sel) sel.value = preCid; }
         const rowsEl = box.querySelector('#qRows');
         const totalEl = box.querySelector('#qTotal');
+        const imp = box.querySelector('#qImport');
+        if (imp) imp.addEventListener('click', () => {
+          const inp = document.createElement('input');
+          inp.type = 'file'; inp.accept = '.xlsx,.xls,.csv';
+          inp.onchange = async () => {
+            const f = inp.files && inp.files[0];
+            if (!f) return;
+            const msg = box.querySelector('#qImportMsg');
+            msg.textContent = '正在解析「' + f.name + '」…';
+            try {
+              let grid;
+              if (/csv$/i.test(f.name)) {
+                const text = await f.text();
+                grid = text.split(/\r?\n/).map(line => {
+                  const sep = line.indexOf('\t') >= 0 ? '\t' : ',';
+                  return line.split(sep).map(x => x.replace(/^"|"$/g, '').trim());
+                }).filter(row => row.some(x => x !== ''));
+              } else {
+                const buf = await f.arrayBuffer();
+                const wb = XLSX.read(buf, { type: 'array' });
+                grid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+              }
+              const res = parseGrid(grid);
+              if (!res.rows.length) { msg.textContent = '没有识别到有效数据行，请确认第一行是表头（含"产品/数量"等字样）'; return; }
+              rows = res.rows; renderRows(); calc();
+              if (res.custName) {
+                const c = DB.customers.find(x => x.name === res.custName);
+                if (c) { box.querySelector('#qCust').value = c.id; msg.textContent = '已识别客户「' + c.name + '」，并导入 ' + res.rows.length + ' 行明细，请核对金额'; }
+                else msg.textContent = '已导入 ' + res.rows.length + ' 行明细；表格中的客户「' + res.custName + '」不在客户库，请手动选择客户';
+              } else msg.textContent = '已导入 ' + res.rows.length + ' 行明细，请核对数量与单价';
+            } catch (err) { msg.textContent = '解析失败：' + err.message; }
+          };
+          inp.click();
+        });
         function calc() {
           const total = rows.reduce((s, r) => s + (r.price || 0) * (r.qty || 0), 0);
           totalEl.textContent = App.fmtMoney(total);
@@ -332,7 +427,6 @@
               calc();
             }
           }));
-          rowsEl.querySelectorAll('.q-name').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].name = inp.value; }));
           rowsEl.querySelectorAll('.q-spec').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].spec = inp.value; }));
           rowsEl.querySelectorAll('.q-qty').forEach(inp => inp.addEventListener('input', () => {
             const i = Number(inp.closest('[data-row]').dataset.row);
@@ -364,7 +458,7 @@
           App.btnLoading(btn);
           const items = rows.map(r => {
             const p = products.find(x => x.id === r.pid);
-            return { productId: p.id, name: (r.name || '').trim() || p.name, spec: (r.spec || '').trim(), unit: r.unit, qty: r.qty, price: r.price };
+            return { productId: (p || {}).id || '', name: (r.name || '').trim() || (p ? p.name : ''), spec: (r.spec || '').trim(), unit: r.unit, qty: r.qty, price: r.price };
           });
           const res = await saveQuote({
             customerId: cSel.value, items, owner: sess.userId, note: box.querySelector('#qNote').value,
@@ -388,5 +482,13 @@
       w();
     });
     await renderList();
+    /* 从客户页"推进到已报价"跳转过来：自动打开新建报价并预选客户 */
+    const sp = new URLSearchParams(location.search);
+    if (sp.get('new') === '1') {
+      const cid = sp.get('cid');
+      if (cid && DB.customers.some(c => c.id === cid)) addModal(cid);
+      else addModal();
+      history.replaceState(null, '', 'quotes.html');
+    }
   });
 })();
