@@ -1221,6 +1221,92 @@ async function advancePurchase(id, step) {
   return { code: 0, data: _purchaseView(p) };
 }
 
+/* 驳回采购申请（老板）：需填原因；驳回后申请人可改后重新提交，总经理亦可直接编辑 */
+async function rejectPurchase(id, reason) {
+  await delay(420);
+  const p = DB.purchases.find(x => x.id === id);
+  if (!p) return { code: 1, msg: '采购单不存在' };
+  if (p.status !== '待审批') return { code: 1, msg: '仅「待审批」的采购可以驳回' };
+  if (!reason || !reason.trim() || reason.trim().length < 4) return { code: 1, msg: '请填写驳回原因（至少 4 个字）' };
+  p.status = '已驳回';
+  p.rejectReason = reason.trim();
+  _cloudSync("purchases", "upsert", p);
+  return { code: 0, data: _purchaseView(p) };
+}
+
+/* 总经理：编辑采购单（任意字段 + 明细） */
+async function adminUpdatePurchase(id, patch) {
+  await delay(460);
+  const p = DB.purchases.find(x => x.id === id);
+  if (!p) return { code: 1, msg: '采购单不存在' };
+  if (patch.title != null && patch.title.trim()) p.title = patch.title.trim();
+  if (patch.supplierId) p.supplierId = patch.supplierId;
+  if (patch.orderId != null) p.orderId = patch.orderId;
+  if (patch.note != null) p.note = patch.note;
+  if (patch.status && ['待审批', '已审批', '已付款', '已入库', '已驳回'].includes(patch.status)) {
+    p.status = patch.status;
+    if (patch.status === '已审批' && !p.approveDate) p.approveDate = DB.today;
+    if (patch.status === '已付款' && !p.payDate) p.payDate = DB.today;
+    if (patch.status === '已入库' && !p.receiveDate) p.receiveDate = DB.today;
+  }
+  if (Array.isArray(patch.items) && patch.items.length) {
+    p.items = patch.items.filter(i => i.name && i.qty > 0)
+      .map(i => ({ name: i.name, spec: i.spec || '', unit: i.unit || '件', qty: Number(i.qty), price: Number(i.price) || 0 }));
+  }
+  _cloudSync("purchases", "upsert", p);
+  return { code: 0, data: _purchaseView(p) };
+}
+
+/* 总经理：删除采购单（已付款的会同时影响记账支出，UI 二次确认提示） */
+async function adminDeletePurchase(id) {
+  await delay(380);
+  const i = DB.purchases.findIndex(x => x.id === id);
+  if (i < 0) return { code: 1, msg: '采购单不存在' };
+  DB.purchases.splice(i, 1);
+  return { code: 0 };
+}
+
+/* 总经理：修改回款记录（订单已收金额自动重算） */
+async function updatePayment(id, patch) {
+  await delay(420);
+  const p = DB.payments.find(x => x.id === id);
+  if (!p) return { code: 1, msg: '回款记录不存在' };
+  const amount = Number(patch.amount);
+  if (!amount || amount <= 0) return { code: 1, msg: '请填写正确的金额' };
+  if (patch.date) p.date = patch.date;
+  if (patch.type) p.type = patch.type;
+  if (patch.method) p.method = patch.method;
+  if (patch.note != null) p.note = patch.note;
+  p.amount = amount;
+  const o = _orderById(p.orderId);
+  if (o) {
+    o.paid = DB.payments.filter(x => x.orderId === o.id).reduce((s, x) => s + x.amount, 0);
+    const settled = o.paid >= o.amount - 0.001;
+    if (settled && o.status === '已发货') { o.status = '已收款'; if (!o.stageDates) o.stageDates = {}; o.stageDates.done = p.date; }
+    else if (!settled && o.status === '已收款') { o.status = '已发货'; if (o.stageDates) delete o.stageDates.done; }
+    _cloudSync("orders", "upsert", o);
+  }
+  _cloudSync("payments", "upsert", p);
+  return { code: 0, data: p };
+}
+
+/* 总经理：删除回款记录（订单已收金额自动重算） */
+async function deletePayment(id) {
+  await delay(380);
+  const p = DB.payments.find(x => x.id === id);
+  if (!p) return { code: 1, msg: '回款记录不存在' };
+  const i = DB.payments.findIndex(x => x.id === id);
+  if (i >= 0) DB.payments.splice(i, 1);
+  const o = _orderById(p.orderId);
+  if (o) {
+    o.paid = DB.payments.filter(x => x.orderId === o.id).reduce((s, x) => s + x.amount, 0);
+    const settled = o.paid >= o.amount - 0.001;
+    if (!settled && o.status === '已收款') { o.status = '已发货'; if (o.stageDates) delete o.stageDates.done; }
+    _cloudSync("orders", "upsert", o);
+  }
+  return { code: 0 };
+}
+
 /* ============================================================
    财务记账（收入自动来自回款流水；支出 = 采购付款 + 手工账）
    ============================================================ */

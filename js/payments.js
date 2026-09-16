@@ -62,21 +62,38 @@
       '<div class="card-tools"><select class="select" id="monthSel" style="width:130px"><option value="">全部月份</option>' +
       months.map(m => '<option' + (state.month === m ? ' selected' : '') + '>' + m + '</option>').join('') + '</select></div></div>' +
       '<div class="card-body table-wrap"><table class="table">' +
-      '<thead><tr><th>日期</th><th>订单</th><th>客户</th><th>类型</th><th>金额</th><th>方式</th><th>记录人</th><th>备注</th></tr></thead><tbody>' +
+      '<thead><tr><th>日期</th><th>订单</th><th>客户</th><th>类型</th><th>金额</th><th>方式</th><th>记录人</th><th>备注</th><th></th></tr></thead><tbody>' +
       (payList.length ? payList.map(p =>
         '<tr><td>' + p.date + '</td><td><span class="row-link" data-oid2="' + p.orderId + '">' + p.orderNo + '</span></td>' +
         '<td>' + App.escapeHtml(p.customerName) + '</td>' +
         '<td>' + App.badge(p.type, App.payTypeMeta[p.type]) + '</td>' +
         '<td class="money success">' + App.fmtMoney(p.amount) + '</td>' +
         '<td>' + p.method + '</td><td>' + App.escapeHtml(p.recorderName) + '</td>' +
-        '<td class="sub-line">' + App.escapeHtml(p.note || '') + '</td></tr>').join('')
-        : '<tr><td colspan="8"><div class="empty"><span data-icon="inbox"></span><p>暂无回款记录</p></div></td></tr>') +
+        '<td class="sub-line">' + App.escapeHtml(p.note || '') + '</td>' +
+        '<td>' + (App.can('payment.edit') ? '<div class="row-actions">' +
+          '<button class="btn btn-sm" data-pedit="' + p.id + '"><span data-icon="pencil"></span>编辑</button>' +
+          '<button class="btn btn-sm btn-danger" data-pdel="' + p.id + '"><span data-icon="trash-2"></span>删除</button></div>' : '') + '</td></tr>').join('')
+        : '<tr><td colspan="9"><div class="empty"><span data-icon="inbox"></span><p>暂无回款记录</p></div></td></tr>') +
       '</tbody></table></div></div>';
 
     root.querySelectorAll('.kpi-value[data-count]').forEach(el => App.countUp(el, Number(el.dataset.count)));
     root.querySelectorAll('[data-oid], [data-oid2]').forEach(el =>
       el.addEventListener('click', () => location.href = 'orders.html?oid=' + (el.dataset.oid || el.dataset.oid2)));
     root.querySelectorAll('[data-pay]').forEach(el => el.addEventListener('click', () => payModal(el.dataset.pay)));
+    root.querySelectorAll('[data-pedit]').forEach(el => el.addEventListener('click', () => {
+      const p = payList.find(x => x.id === el.dataset.pedit);
+      if (p) editPaymentModal(p);
+    }));
+    root.querySelectorAll('[data-pdel]').forEach(el => el.addEventListener('click', () => App.confirm({
+      title: '删除这笔回款记录？',
+      html: '删除后订单的<b>已收金额自动重算</b>；若因此不再结清，订单状态会退回「已发货」。此操作不可恢复。',
+      okText: '确认删除', danger: true,
+      onOk: async () => {
+        const r = await deletePayment(el.dataset.pdel);
+        if (r.code !== 0) return App.toast(r.msg, 'danger');
+        App.toast('回款记录已删除'); renderList();
+      },
+    })));
     const kwEl = root.querySelector('#kwInput');
     const doSearch = () => { state.kw = kwEl.value; renderList(); };
     kwEl.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
@@ -84,6 +101,42 @@
     if (kwBtn) kwBtn.addEventListener('click', doSearch);
     root.querySelector('#monthSel').addEventListener('change', e => { state.month = e.target.value; renderList(); });
     App.mountIcons(root);
+  }
+
+  /* 总经理：编辑回款记录（订单已收金额自动重算） */
+  function editPaymentModal(p) {
+    App.openModal({
+      title: '编辑回款 · ' + p.orderNo,
+      html:
+        '<div class="form-hint" style="margin-bottom:12px">保存后订单的<b>已收金额与状态自动重算</b>。</div>' +
+        '<div class="field"><label>回款类型</label><select class="select" id="epType">' + ['定金', '尾款', '部分尾款'].map(t => '<option' + (t === p.type ? ' selected' : '') + '>' + t + '</option>').join('') + '</select></div>' +
+        '<div class="form-grid">' +
+        '<div class="form-item"><label>金额（元）<b>*</b></label><input class="input num" id="epAmt" type="number" min="1" step="0.01" value="' + p.amount + '"><p class="form-error"></p></div>' +
+        '<div class="form-item"><label>到账日期</label><input class="input" id="epDate" type="date" value="' + p.date + '"></div>' +
+        '<div class="form-item"><label>收款方式</label><select class="select" id="epMethod">' + ['对公转账', '银行承兑', '微信转账'].map(m => '<option' + (m === p.method ? ' selected' : '') + '>' + m + '</option>').join('') + '</select></div>' +
+        '<div class="form-item"><label>备注</label><input class="input" id="epNote" value="' + App.escapeHtml(p.note || '') + '"></div>' +
+        '</div>',
+      foot: '<button class="btn" data-act="cancel">取消</button><button class="btn btn-primary" data-act="ok">保存修改</button>',
+      onMount(box) {
+        box.querySelector('[data-act="cancel"]').addEventListener('click', () => App.closeModal());
+        box.querySelector('[data-act="ok"]').addEventListener('click', async e => {
+          const btn = e.currentTarget;
+          const amtEl = box.querySelector('#epAmt');
+          App.formClear(amtEl);
+          const amt = Number(amtEl.value);
+          if (!amt || amt <= 0) return App.formError(amtEl, '请填写正确的金额');
+          App.btnLoading(btn);
+          const r = await updatePayment(p.id, {
+            amount: amt, type: box.querySelector('#epType').value,
+            date: box.querySelector('#epDate').value, method: box.querySelector('#epMethod').value,
+            note: box.querySelector('#epNote').value,
+          });
+          App.btnDone(btn);
+          if (r.code !== 0) return App.toast(r.msg, 'danger');
+          App.closeModal(); App.toast('回款记录已更新'); renderList();
+        });
+      },
+    });
   }
 
   /* 登记回款（与 orders.js 同一交互，独立实现避免跨页依赖） */

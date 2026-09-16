@@ -170,7 +170,7 @@ const App = {
     '已下单': 'badge-info', '生产中': 'badge-warn', '已发货': 'badge-info', '已收款': 'badge-success',
   },
   purchaseStatusMeta: {
-    '待审批': 'badge-warn', '已审批': 'badge-info', '已付款': 'badge-info', '已入库': 'badge-success',
+    '待审批': 'badge-warn', '已审批': 'badge-info', '已付款': 'badge-info', '已入库': 'badge-success', '已驳回': 'badge-danger',
   },
   payTypeMeta: { '定金': 'badge-info', '尾款': 'badge-success', '部分尾款': 'badge-warn' },
   remindTypeMeta: {

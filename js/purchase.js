@@ -8,7 +8,7 @@
   const root = document.getElementById('pageRoot');
   const sess = App.session();
   const state = { kw: '', status: '' };
-  const FLOW = ['待审批', '已审批', '已付款', '已入库'];
+  const FLOW = ['待审批', '已审批', '已付款', '已入库', '已驳回'];
 
   async function renderList() {
     root.innerHTML = '<div class="skeleton s-block"></div>';
@@ -37,9 +37,11 @@
       '<thead><tr><th>采购单</th><th>标题</th><th>供应商</th><th>关联订单</th><th>金额</th><th>状态</th><th>申请人 / 日期</th><th></th></tr></thead><tbody>' +
       (list.length ? list.map(p => {
         const nextAct =
-          p.status === '待审批' && canApp ? '<button class="btn btn-sm btn-primary" data-act2="approve" data-pid="' + p.id + '">审批通过</button>' :
+          p.status === '待审批' && canApp ? '<button class="btn btn-sm btn-primary" data-act2="approve" data-pid="' + p.id + '">通过</button>' +
+          (App.isBoss() ? '<button class="btn btn-sm btn-danger" data-act2="reject" data-pid="' + p.id + '">驳回</button>' : '') :
           p.status === '已审批' && canPay ? '<button class="btn btn-sm btn-primary" data-act2="pay" data-pid="' + p.id + '">登记付款</button>' :
           p.status === '已付款' && canPay ? '<button class="btn btn-sm btn-warn" data-act2="receive" data-pid="' + p.id + '">确认入库</button>' :
+          p.status === '已驳回' ? '<span class="sub-line">已驳回，可由总经理修改后重新推进</span>' :
           '<span class="sub-line">' +
           (p.status === '待审批' ? '等老板审批' : p.status === '已审批' ? '等财务付款' : p.status === '已付款' ? '等入库' : '已完结') + '</span>';
         return '<tr>' +
@@ -96,6 +98,27 @@
   }
 
   async function advance(id, step) {
+    if (step === 'reject') {
+      App.openModal({
+        title: '驳回采购申请',
+        html: '<div class="field"><label>驳回原因（至少 4 个字）<b>*</b></label><textarea class="textarea" id="rjReason" placeholder="例如：预算超支，改用替代料"></textarea><p class="form-error"></p></div>',
+        foot: '<button class="btn" data-act="cancel">取消</button><button class="btn btn-danger" data-act="ok">确认驳回</button>',
+        onMount(box) {
+          box.querySelector('[data-act="cancel"]').addEventListener('click', () => App.closeModal());
+          box.querySelector('[data-act="ok"]').addEventListener('click', async e => {
+            const btn = e.currentTarget, rEl = box.querySelector('#rjReason');
+            App.formClear(rEl);
+            if (rEl.value.trim().length < 4) return App.formError(rEl, '至少 4 个字，便于申请人整改');
+            App.btnLoading(btn);
+            const r = await rejectPurchase(id, rEl.value);
+            App.btnDone(btn);
+            if (r.code !== 0) return App.toast(r.msg, 'danger');
+            App.closeModal(); App.toast('已驳回，申请人可修改后重新提交'); renderList();
+          });
+        },
+      });
+      return;
+    }
     if (step === 'approve') {
       App.confirm({
         title: '审批通过？',
@@ -136,13 +159,102 @@
         '<div><div class="lbl">关联订单</div>' + (p.orderNo || '备货') + '</div>' +
         '<div><div class="lbl">申请 / 审批 / 付款 / 入库</div>' + p.createdAt + ' / ' + (p.approveDate || '—') + ' / ' + (p.payDate || '—') + ' / ' + (p.receiveDate || '—') + '</div>' +
         '</div>' +
+        (p.rejectReason ? '<div class="view-banner" style="color:var(--danger);background:var(--danger-bg);border-color:rgba(255,84,112,.3);margin-bottom:14px"><span data-icon="ban"></span>驳回原因：' + App.escapeHtml(p.rejectReason) + '</div>' : '') +
         '<div class="card"><div class="card-head"><div class="card-title">采购明细</div></div>' +
         '<div class="card-body table-wrap"><table class="table"><thead><tr><th>品名</th><th>规格</th><th>数量</th><th>单价</th><th>小计</th></tr></thead><tbody>' +
         p.items.map(i => '<tr><td>' + App.escapeHtml(i.name) + '</td><td class="sub-line">' + App.escapeHtml(i.spec) + '</td>' +
         '<td class="num">' + i.qty + ' ' + i.unit + '</td><td class="money">' + App.fmtMoney(i.price) + '</td>' +
         '<td class="money">' + App.fmtMoney(i.qty * i.price) + '</td></tr>').join('') +
         '</tbody></table></div></div>' +
-        (p.note ? '<p class="form-hint" style="margin-top:12px">' + App.escapeHtml(p.note) + '</p>' : ''),
+        (p.note ? '<p class="form-hint" style="margin-top:12px">' + App.escapeHtml(p.note) + '</p>' : '') +
+        (App.isBoss() ? '<div class="row-actions" style="margin-top:14px">' +
+          '<button class="btn btn-primary" id="pEdit"><span data-icon="pencil"></span>编辑采购单</button>' +
+          '<button class="btn btn-danger" id="pDel"><span data-icon="trash-2"></span>删除采购单</button></div>' : ''),
+      onMount(box) {
+        const ed = box.querySelector('#pEdit');
+        if (ed) ed.addEventListener('click', () => editPurchaseModal(p.id, () => { App.closeDrawer(); renderList(); }));
+        const dl = box.querySelector('#pDel');
+        if (dl) dl.addEventListener('click', () => App.confirm({
+          title: '删除采购单 ' + p.no + '？',
+          html: (p.payDate ? '<b style="color:var(--danger)">该单已登记付款，删除后记账里的对应支出也会消失。</b><br>' : '') +
+            '删除后不可恢复。申请人如需重新申请，可再发起新的采购单。',
+          okText: '确认删除', danger: true,
+          onOk: async () => {
+            const r = await adminDeletePurchase(p.id);
+            if (r.code !== 0) return App.toast(r.msg, 'danger');
+            App.toast('采购单已删除'); App.closeDrawer(); renderList();
+          },
+        }));
+      },
+    });
+  }
+
+  /* ---------- 总经理：编辑采购单（任意字段 + 明细增删改） ---------- */
+  function editPurchaseModal(id, done) {
+    const p = DB.purchases.find(x => x.id === id);
+    if (!p) return;
+    const suppliers = DB.suppliers;
+    const orders = DB.orders.filter(o => o.status !== '已收款' || o.id === p.orderId);
+    const STATUSES = ['待审批', '已审批', '已付款', '已入库', '已驳回'];
+    let rows = p.items.map(i => ({ ...i }));
+    App.openModal({
+      title: '编辑采购 · ' + p.no, wide: true,
+      html:
+        '<div class="form-hint" style="margin-bottom:12px">总经理可修改任意内容，包括直接调整状态（如把被驳回的单改回待审批）。</div>' +
+        '<div class="form-grid">' +
+        '<div class="form-item"><label>标题<b>*</b></label><input class="input" id="epTitle" value="' + App.escapeHtml(p.title) + '"><p class="form-error"></p></div>' +
+        '<div class="form-item"><label>供应商<b>*</b></label><select class="select" id="epSup">' +
+        suppliers.map(s => '<option value="' + s.id + '"' + (s.id === p.supplierId ? ' selected' : '') + '>' + App.escapeHtml(s.name) + '</option>').join('') + '</select></div>' +
+        '<div class="form-item"><label>状态</label><select class="select" id="epStatus">' + STATUSES.map(st => '<option' + (st === p.status ? ' selected' : '') + '>' + st + '</option>').join('') + '</select></div>' +
+        '<div class="form-item"><label>关联订单</label><select class="select" id="epOrder"><option value="">备货（不关联订单）</option>' +
+        orders.map(o => '<option value="' + o.id + '"' + (o.id === p.orderId ? ' selected' : '') + '>' + o.no + '</option>').join('') + '</select></div>' +
+        '</div>' +
+        '<div class="field"><label>采购明细<b>*</b></label><div id="epRows"></div>' +
+        '<button class="btn btn-sm" id="epAdd" style="margin-top:8px"><span data-icon="plus"></span>加一行</button></div>' +
+        '<div class="view-banner" style="margin:0"><span data-icon="coins"></span>合计：<b class="money" id="epTotal" style="margin-left:6px">¥0</b></div>' +
+        '<div class="form-item" style="margin-top:12px"><label>备注</label><input class="input" id="epNote" value="' + App.escapeHtml(p.note || '') + '"></div>',
+      foot: '<button class="btn" data-act="cancel">取消</button><button class="btn btn-primary" data-act="ok">保存修改</button>',
+      onMount(box) {
+        const rowsEl = box.querySelector('#epRows');
+        const totalEl = box.querySelector('#epTotal');
+        function calc() { totalEl.textContent = App.fmtMoney(rows.reduce((s, r) => s + (r.price || 0) * (r.qty || 0), 0)); }
+        function renderRows() {
+          rowsEl.innerHTML = rows.map((r, i) =>
+            '<div class="row-actions" style="margin-bottom:8px" data-row="' + i + '">' +
+            '<input class="input ep-name" value="' + App.escapeHtml(r.name) + '" style="flex:2" placeholder="品名">' +
+            '<input class="input ep-spec" value="' + App.escapeHtml(r.spec || '') + '" style="flex:1.5" placeholder="规格">' +
+            '<input class="input ep-qty num" type="number" min="1" value="' + r.qty + '" style="width:80px" placeholder="数量">' +
+            '<input class="input ep-price num" type="number" min="0" value="' + r.price + '" style="width:100px" placeholder="单价">' +
+            '<button class="btn btn-sm btn-danger ep-del"><span data-icon="trash-2"></span></button></div>').join('');
+          rowsEl.querySelectorAll('.ep-name').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].name = inp.value; calc(); }));
+          rowsEl.querySelectorAll('.ep-spec').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].spec = inp.value; }));
+          rowsEl.querySelectorAll('.ep-qty').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].qty = Number(inp.value) || 1; calc(); }));
+          rowsEl.querySelectorAll('.ep-price').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].price = Number(inp.value) || 0; calc(); }));
+          rowsEl.querySelectorAll('.ep-del').forEach(btn => btn.addEventListener('click', () => {
+            if (rows.length === 1) return;
+            rows.splice(Number(btn.closest('[data-row]').dataset.row), 1); renderRows(); calc();
+          }));
+          App.mountIcons(rowsEl);
+        }
+        renderRows(); calc();
+        box.querySelector('#epAdd').addEventListener('click', () => { rows.push({ name: '', spec: '', qty: 1, price: 0, unit: '件' }); renderRows(); calc(); });
+        box.querySelector('[data-act="cancel"]').addEventListener('click', () => App.closeModal());
+        box.querySelector('[data-act="ok"]').addEventListener('click', async e => {
+          const btn = e.currentTarget;
+          const tEl = box.querySelector('#epTitle');
+          App.formClear(tEl);
+          if (!tEl.value.trim()) return App.formError(tEl, '请填写标题');
+          App.btnLoading(btn);
+          const r = await adminUpdatePurchase(p.id, {
+            title: tEl.value, supplierId: box.querySelector('#epSup').value,
+            orderId: box.querySelector('#epOrder').value, status: box.querySelector('#epStatus').value,
+            note: box.querySelector('#epNote').value, items: rows,
+          });
+          App.btnDone(btn);
+          if (r.code !== 0) return App.toast(r.msg, 'danger');
+          App.closeModal(); App.toast('采购单已保存'); if (done) done();
+        });
+      },
     });
   }
 
