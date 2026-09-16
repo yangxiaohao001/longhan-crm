@@ -43,10 +43,10 @@
       (!readOnly ? '<button class="btn btn-primary btn-sm" id="addBtn"><span data-icon="user-plus"></span>新建客户</button>' : '') +
       '</div></div>' +
       '<div class="card-body table-wrap"><table class="table">' +
-      '<thead><tr><th>客户</th><th>阶段</th><th>累计成交</th><th>当前欠款</th><th>下次跟进</th>' + (App.seeAll() ? '<th>业务员</th>' : '') + '<th></th></tr></thead><tbody>' +
+      '<thead><tr>' + (App.isBoss() ? '<th style="width:34px"><input type="checkbox" class="chk-all" title="全选"></th>' : '') + '<th>客户</th><th>阶段</th><th>累计成交</th><th>当前欠款</th><th>下次跟进</th>' + (App.seeAll() ? '<th>业务员</th>' : '') + '<th></th></tr></thead><tbody>' +
       (list.length ? list.map(c => {
         const overdueFollow = c.nextFollowIn != null && c.nextFollowIn < 0;
-        return '<tr>' +
+        return '<tr>' + (App.isBoss() ? '<td><input type="checkbox" class="row-chk" data-id="' + c.id + '"></td>' : '') +
           '<td><span class="row-link" data-cid="' + c.id + '" style="font-family:var(--font-body)">' + App.escapeHtml(c.name) + '</span>' +
           '<div class="sub-line">' + App.escapeHtml(c.contact) + ' · ' + App.escapeHtml(c.phone) + ' · ' + App.escapeHtml(c.industry) + '</div></td>' +
           '<td>' + App.badge(c.stage, App.stageMeta[c.stage]) + '</td>' +
@@ -57,7 +57,7 @@
           (App.seeAll() ? '<td>' + App.escapeHtml(c.ownerName) + '</td>' : '') +
           '<td>' + (readOnly ? '<span class="sub-line">只读</span>' : '<button class="btn btn-sm" data-follow="' + c.id + '"><span data-icon="phone-call"></span>记跟进</button>') + '</td>' +
           '</tr>';
-      }).join('') : '<tr><td colspan="7"><div class="empty"><span data-icon="inbox"></span><p>没有符合条件的客户</p></div></td></tr>') +
+      }).join('') : '<tr><td colspan="' + (App.isBoss() ? 8 : 7) + '"><div class="empty"><span data-icon="inbox"></span><p>没有符合条件的客户</p></div></td></tr>') +
       '</tbody></table></div></div>';
 
     root.querySelectorAll('[data-cid]').forEach(el => el.addEventListener('click', () => openDrawer(el.dataset.cid)));
@@ -72,6 +72,18 @@
     const addBtn = root.querySelector('#addBtn');
     if (addBtn) addBtn.addEventListener('click', addModal);
     App.mountIcons(root);
+    if (App.isBoss() && typeof list !== 'undefined' && list.length) App.bindBatch(root, {
+      onDelete: ids2 => App.confirm({
+        title: '批量删除 ' + ids2.length + ' 个客户？',
+        html: '将删除所选客户的全部资料与跟进记录，此操作<b>不可恢复</b>。',
+        okText: '确认删除', danger: true,
+        onOk: async () => {
+          for (const cid of ids2) await adminDeleteCustomer(cid);
+          App.toast('已删除 ' + ids2.length + ' 个客户');
+          renderList();
+        },
+      }),
+    });
   }
 
   /* ---------- 客户抽屉 ---------- */

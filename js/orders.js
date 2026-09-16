@@ -51,11 +51,11 @@
       '<input class="input" id="kwInput" placeholder="搜索单号 / 客户名" style="width:190px" value="' + App.escapeHtml(state.kw) + '"><button class="btn btn-sm" id="kwBtn">搜索</button></div>' +
       '<button class="btn btn-sm" id="tabKanban"><span data-icon="columns-2"></span>生产看板</button></div>' +
       '</div><div class="card-body table-wrap"><table class="table">' +
-      '<thead><tr><th>订单号</th><th>客户</th><th>金额</th><th>已收</th><th>欠款</th><th>状态</th><th>下单 / 交期</th>' + (App.seeAll() ? '<th>业务员</th>' : '') + '<th>下一步</th></tr></thead><tbody>' +
+      '<thead><tr>' + (App.isBoss() ? '<th style="width:34px"><input type="checkbox" class="chk-all" title="全选"></th>' : '') + '<th>订单号</th><th>客户</th><th>金额</th><th>已收</th><th>欠款</th><th>状态</th><th>下单 / 交期</th>' + (App.seeAll() ? '<th>业务员</th>' : '') + '<th>下一步</th></tr></thead><tbody>' +
       (list.length ? list.map(o => {
         const next = NEXT_OF[o.status];
         const overdueDue = o.dueInDays != null && o.dueInDays < 0 && o.status !== '已收款';
-        return '<tr>' +
+        return '<tr>' + (App.isBoss() ? '<td><input type="checkbox" class="row-chk" data-id="' + o.id + '"></td>' : '') +
           '<td><span class="row-link" data-oid="' + o.id + '">' + o.no + '</span></td>' +
           '<td>' + App.escapeHtml(o.customerName) + '</td>' +
           '<td class="money">' + App.fmtMoney(o.amount) + '</td>' +
@@ -69,7 +69,7 @@
             ? '<button class="btn btn-sm btn-primary" data-adv="' + o.id + '">→ ' + next + '</button>'
             : (next ? '<span class="sub-line">需老板/财务操作</span>' : '<span class="sub-line">已完结</span>')) + '</td>' +
           '</tr>';
-      }).join('') : '<tr><td colspan="9"><div class="empty"><span data-icon="inbox"></span><p>没有符合条件的订单</p></div></td></tr>') +
+      }).join('') : '<tr><td colspan="' + (App.isBoss() ? 10 : 9) + '"><div class="empty"><span data-icon="inbox"></span><p>没有符合条件的订单</p></div></td></tr>') +
       '</tbody></table></div></div>';
 
     root.querySelectorAll('.kpi-value[data-count]').forEach(el => {
@@ -87,6 +87,19 @@
     if (kwBtn) kwBtn.addEventListener('click', doSearch);
     root.querySelector('#tabKanban').addEventListener('click', () => { state.tab = 'kanban'; render(); });
     App.mountIcons(root);
+    if (App.isBoss() && typeof list !== 'undefined' && list.length && state.tab !== 'kanban') App.bindBatch(root, {
+      onDelete: ids2 => App.confirm({
+        title: '批量删除 ' + ids2.length + ' 个订单？',
+        html: '将删除所选订单及其回款记录的关联（回款流水保留）。此操作<b>不可恢复</b>。',
+        okText: '确认删除', danger: true,
+        onOk: async () => {
+          let fail = 0;
+          for (const oid of ids2) { const r = await adminDeleteOrder(oid); if (r.code !== 0) fail++; }
+          App.toast('已删除 ' + (ids2.length - fail) + ' 个订单' + (fail ? '，' + fail + ' 个失败' : ''));
+          render();
+        },
+      }),
+    });
   }
 
   function canAdvance() { return App.can('order.advanceAll') || App.hasFollowup(); }

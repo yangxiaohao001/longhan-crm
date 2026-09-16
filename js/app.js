@@ -188,6 +188,49 @@ const App = {
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + '</svg>';
   },
 
+  /* 列表批量选择：绑定全选/行选/浮动操作条。opts.onDelete(ids) 由页面提供 */
+  bindBatch(root, opts) {
+    let bar = document.getElementById('batchBar');
+    if (bar) bar.remove();
+    const ids = () => [...root.querySelectorAll('.row-chk:checked')].map(c => c.dataset.id);
+    const update = () => {
+      const list = ids();
+      let b = document.getElementById('batchBar');
+      if (!list.length) { if (b) b.remove(); return; }
+      if (!b) {
+        b = document.createElement('div');
+        b.id = 'batchBar';
+        b.style.cssText = 'position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:95;display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--surface-solid);border:1px solid var(--border-strong);border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.4)';
+        b.innerHTML = '<span class="batch-count" style="font-size:13px;color:var(--ink)"></span>' +
+          '<button class="btn btn-sm btn-danger batch-del"><span data-icon="trash-2"></span>批量删除</button>' +
+          '<button class="btn btn-sm batch-cancel">取消</button>';
+        document.body.appendChild(b);
+        b.querySelector('.batch-cancel').addEventListener('click', () => {
+          root.querySelectorAll('.row-chk:checked').forEach(c => { c.checked = false; });
+          const all = root.querySelector('.chk-all'); if (all) all.checked = false;
+          update();
+        });
+        b.querySelector('.batch-del').addEventListener('click', async () => {
+          const delIds = ids();
+          if (!delIds.length || !opts || !opts.onDelete) return;
+          const btn = b.querySelector('.batch-del');
+          btn.disabled = true;
+          try { await opts.onDelete(delIds); } catch (e) { App.toast('批量操作失败：' + e.message, 'danger'); }
+          const b2 = document.getElementById('batchBar');
+          if (b2) { const btn2 = b2.querySelector('.batch-del'); if (btn2) btn2.disabled = false; }
+        });
+        App.mountIcons(b);
+      }
+      b.querySelector('.batch-count').textContent = '已选择 ' + list.length + ' 项';
+    };
+    const all = root.querySelector('.chk-all');
+    if (all) all.addEventListener('change', () => {
+      root.querySelectorAll('.row-chk').forEach(c => { c.checked = all.checked; });
+      update();
+    });
+    root.querySelectorAll('.row-chk').forEach(c => c.addEventListener('change', update));
+  },
+
   mountIcons(root) {
     (root || document).querySelectorAll('[data-icon]').forEach(el => {
       const name = el.getAttribute('data-icon');

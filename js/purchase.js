@@ -34,7 +34,7 @@
       (App.isBoss() || App.can('purchase.request') ? '<button class="btn btn-sm" id="supBtn"><span data-icon="building-2"></span>供应商管理</button>' : '') +
       '</div></div>' +
       '<div class="card-body table-wrap"><table class="table">' +
-      '<thead><tr><th>采购单</th><th>标题</th><th>供应商</th><th>关联订单</th><th>金额</th><th>状态</th><th>申请人 / 日期</th><th></th></tr></thead><tbody>' +
+      '<thead><tr>' + (App.isBoss() ? '<th style="width:34px"><input type="checkbox" class="chk-all" title="全选"></th>' : '') + '<th>采购单</th><th>标题</th><th>供应商</th><th>关联订单</th><th>金额</th><th>状态</th><th>申请人 / 日期</th><th></th></tr></thead><tbody>' +
       (list.length ? list.map(p => {
         const nextAct =
           p.status === '待审批' && canApp ? '<button class="btn btn-sm btn-primary" data-act2="approve" data-pid="' + p.id + '">通过</button>' +
@@ -44,7 +44,7 @@
           p.status === '已驳回' ? '<span class="sub-line">已驳回，可由总经理修改后重新推进</span>' :
           '<span class="sub-line">' +
           (p.status === '待审批' ? '等老板审批' : p.status === '已审批' ? '等财务付款' : p.status === '已付款' ? '等入库' : '已完结') + '</span>';
-        return '<tr>' +
+        return '<tr>' + (App.isBoss() ? '<td><input type="checkbox" class="row-chk" data-id="' + p.id + '"></td>' : '') +
           '<td><span class="row-link" data-pid2="' + p.id + '">' + p.no + '</span></td>' +
           '<td>' + App.escapeHtml(p.title) + '</td>' +
           '<td>' + App.escapeHtml(p.supplierName) + '</td>' +
@@ -54,7 +54,7 @@
           '<td>' + App.escapeHtml(p.requesterName) + '<div class="sub-line">' + p.createdAt + '</div></td>' +
           '<td><div class="row-actions">' + nextAct + '</div></td>' +
           '</tr>';
-      }).join('') : '<tr><td colspan="8"><div class="empty"><span data-icon="inbox"></span><p>暂无采购单</p></div></td></tr>') +
+      }).join('') : '<tr><td colspan="' + (App.isBoss() ? 9 : 8) + '"><div class="empty"><span data-icon="inbox"></span><p>暂无采购单</p></div></td></tr>') +
       '</tbody></table></div></div>' +
 
       '<div class="card"><div class="card-head"><div class="card-title">供应商档案</div><span class="card-sub">' + DB.suppliers.length + ' 家</span></div>' +
@@ -95,6 +95,18 @@
     const supBtn = root.querySelector('#supBtn');
     if (supBtn) supBtn.addEventListener('click', suppliersModal);
     App.mountIcons(root);
+    if (App.isBoss() && typeof list !== 'undefined' && list.length) App.bindBatch(root, {
+      onDelete: ids2 => App.confirm({
+        title: '批量删除 ' + ids2.length + ' 个采购单？',
+        html: '已登记付款的采购单删除后，记账中的对应支出也会消失。此操作<b>不可恢复</b>。',
+        okText: '确认删除', danger: true,
+        onOk: async () => {
+          for (const pid of ids2) await adminDeletePurchase(pid);
+          App.toast('已删除 ' + ids2.length + ' 个采购单');
+          renderList();
+        },
+      }),
+    });
   }
 
   async function advance(id, step) {

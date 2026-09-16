@@ -47,10 +47,10 @@
       (!readOnly ? '<button class="btn btn-primary btn-sm" id="addBtn"><span data-icon="plus"></span>新建报价</button>' : '') +
       '</div></div>' +
       '<div class="card-body table-wrap"><table class="table">' +
-      '<thead><tr><th>报价单</th><th>客户</th><th>版本</th><th>金额</th><th>状态</th><th>有效期</th>' + (App.seeAll() ? '<th>业务员</th>' : '') + '<th></th></tr></thead><tbody>' +
+      '<thead><tr>' + (App.isBoss() ? '<th style="width:34px"><input type="checkbox" class="chk-all" title="全选"></th>' : '') + '<th>报价单</th><th>客户</th><th>版本</th><th>金额</th><th>状态</th><th>有效期</th>' + (App.seeAll() ? '<th>业务员</th>' : '') + '<th></th></tr></thead><tbody>' +
       (list.length ? list.map(q => {
         const expiring = q.status === '已发送' && q.validInDays != null && q.validInDays <= 3;
-        return '<tr>' +
+        return '<tr>' + (App.isBoss() ? '<td><input type="checkbox" class="row-chk" data-id="' + q.id + '"></td>' : '') +
           '<td><span class="row-link" data-qid="' + q.id + '">' + q.no + '</span></td>' +
           '<td>' + App.escapeHtml(q.customerName) + '</td>' +
           '<td>v' + q.version + '</td>' +
@@ -60,7 +60,7 @@
           (App.seeAll() ? '<td>' + App.escapeHtml(q.ownerName) + '</td>' : '') +
           '<td>' + (readOnly ? '<span class="sub-line">只读</span>' : '<button class="btn btn-sm" data-qid2="' + q.id + '">查看</button>') + '</td>' +
           '</tr>';
-      }).join('') : '<tr><td colspan="8"><div class="empty"><span data-icon="inbox"></span><p>没有符合条件的报价</p></div></td></tr>') +
+      }).join('') : '<tr><td colspan="' + (App.isBoss() ? 9 : 8) + '"><div class="empty"><span data-icon="inbox"></span><p>没有符合条件的报价</p></div></td></tr>') +
       '</tbody></table></div></div>';
 
     root.querySelectorAll('[data-qid], [data-qid2]').forEach(el => el.addEventListener('click', () => openDrawer(el.dataset.qid || el.dataset.qid2)));
@@ -75,6 +75,19 @@
     const add = root.querySelector('#addBtn');
     if (add) add.addEventListener('click', addModal);
     App.mountIcons(root);
+    if (App.isBoss() && typeof list !== 'undefined' && list.length) App.bindBatch(root, {
+      onDelete: ids2 => App.confirm({
+        title: '批量删除 ' + ids2.length + ' 个报价？',
+        html: '已成交并生成订单的报价会<b>自动跳过</b>，其余将被删除且不可恢复。',
+        okText: '确认删除', danger: true,
+        onOk: async () => {
+          let skip = 0;
+          for (const qid of ids2) { const r = await deleteQuote(qid); if (r.code !== 0) skip++; }
+          App.toast('已删除 ' + (ids2.length - skip) + ' 个报价' + (skip ? '，自动跳过 ' + skip + ' 个（已成交）' : ''));
+          renderList();
+        },
+      }),
+    });
   }
 
   async function approve(id, pass, reason) {
@@ -299,14 +312,14 @@
   /* ---------- Excel / CSV 表格解析：识别表头列，导出报价明细行 ---------- */
   function parseGrid(grid) {
     const norm = x => String(x == null ? '' : x).trim();
-    const KEY = { name: ['产品', '品名', '名称', '材料', '物料', '货品'], spec: ['规格', '型号'], qty: ['数量'], price: ['单价', '价格'], unit: ['单位'], radius: ['半径'], cust: ['客户'] };
+    const KEY = { cust: ['客户'], name: ['产品名称', '产品', '品名', '名称', '材料', '物料', '货品'], spec: ['规格', '型号'], radius: ['半径'], qty: ['数量'], unit: ['单位'], price: ['单价', '价格'] };
     let headIdx = -1, map = null;
     for (let i = 0; i < Math.min(grid.length, 8); i++) {
       const row = (grid[i] || []).map(norm);
-      const m = {}; let hits = 0;
+      const m = {}; const used = new Set(); let hits = 0;
       Object.keys(KEY).forEach(k => {
-        const idx = row.findIndex(cell => KEY[k].some(kw => cell.includes(kw)));
-        if (idx >= 0) { m[k] = idx; hits++; }
+        const idx = row.findIndex((cell, ci) => !used.has(ci) && KEY[k].some(kw => cell.includes(kw)));
+        if (idx >= 0) { m[k] = idx; used.add(idx); hits++; }
       });
       if (hits >= 2) { headIdx = i; map = m; break; }
     }
@@ -322,7 +335,7 @@
       for (let i = headIdx + 1; i < grid.length; i++) {
         const row = grid[i] || [];
         const name = norm(map.name != null ? row[map.name] : '');
-        if (!name || /税金|合计|小计|总计/.test(name)) continue;
+        if (!name || /税金|合计|小计|总计|示例|说明|条款|付款|有效期|人民币|盖章|报价人|审核人|联系人|报价单位|报价时间|交货周期|单位参考|报价日期/.test(name)) continue;
         let spec = norm(map.spec != null ? row[map.spec] : '');
         const radius = norm(map.radius != null ? row[map.radius] : '');
         if (radius) spec = (spec ? spec + ' ' : '') + 'R' + radius;
@@ -342,7 +355,8 @@
   function addModal(preCid) {
     const products = DB.products;
     let rows = [{ pid: products[0].id, name: products[0].name, spec: products[0].spec, qty: 1, price: products[0].price, unit: products[0].unit }];
-    let importedFile = null;
+    let importedFiles = [];   /* 本次弹窗内导入过的源文件（上传 Promise），保存时全部写入备注标记 */
+    let firstImportDone = false;
     App.openModal({
       title: '新建报价',
       wide: true,
@@ -358,7 +372,7 @@
         '<div class="field"><label>产品明细<b>*</b></label>' +
         '<div class="import-row" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
         '<button class="btn btn-sm" id="qImport"><span data-icon="file-spreadsheet"></span>导入 Excel 表格</button>' +
-        '<button class="btn btn-sm" id="qTpl1"><span data-icon="download"></span>旋转钢梯模板</button>' +
+        '<button class="btn btn-sm" id="qTpl1"><span data-icon="download"></span>旋转楼梯模板</button>' +
         '<button class="btn btn-sm" id="qTpl2"><span data-icon="download"></span>拉弯模板</button>' +
         '<span class="sub-line" id="qImportMsg">先下载模板→按格式填写→再导入；支持把 Excel/CSV 从微信直接拖到下方虚线框</span></div>' +
         '<div id="qDrop" class="q-drop">将 Excel / CSV 文件拖到此处上传（支持从微信 / QQ 直接拖入）</div>' +
@@ -400,17 +414,22 @@
               }
               const res = parseGrid(grid);
               if (!res.rows.length) { msg.textContent = '没有识别到有效数据行，请确认第一行是表头（含"产品/数量"等字样）'; return; }
-              rows = res.rows; renderRows(); calc();
+              /* 首次导入替换默认占位行，之后导入追加累加 */
+              rows = firstImportDone ? rows.concat(res.rows) : res.rows;
+              firstImportDone = true;
+              renderRows(); calc();
               if (res.custName) {
                 const c = DB.customers.find(x => x.name === res.custName);
                 if (c) { box.querySelector('#qCust').value = c.id; msg.textContent = '已识别客户「' + c.name + '」，并导入 ' + res.rows.length + ' 行明细，请核对金额'; }
                 else msg.textContent = '已导入 ' + res.rows.length + ' 行明细；表格中的客户「' + res.custName + '」不在客户库，请手动选择客户';
               } else msg.textContent = '已导入 ' + res.rows.length + ' 行明细，请核对数量与单价';
               /* 导入的源文件上传到云存储，保存报价后作为附件留档展示 */
-              importedFile = null;
-              App.dbUpload('quote-imports', f).then(r => {
-                if (r.ok) importedFile = { name: r.name, size: r.size, mime: r.mime, url: r.url, path: r.path };
-              });
+              importedFiles.push(
+                App.dbUpload('quote-imports', f).then(r => {
+                  if (!r || !r.ok) { console.warn('[导入留档] 源文件上传失败：' + (r ? r.msg : '未知')); return null; }
+                  return { name: r.name, size: r.size, mime: r.mime, url: r.url, path: r.path };
+                }).catch(err => { console.warn('[导入留档] 源文件上传异常：' + err.message); return null; })
+              );
             } catch (err) { msg.textContent = '解析失败：' + err.message; }
           };
         };
@@ -440,47 +459,89 @@
             let ws, name;
             if (type === 'stair') {
               ws = XLSX.utils.aoa_to_sheet([
-                ['钢结构旋转楼梯报价单'],
+                ['河北龙瀚金属制品有限公司'],
+                ['报  价  单'],
                 [],
-                ['项目名称：', '', '报价日期：', ''],
-                ['含税税率：13%', '', '备注：此报价为出厂含税价，不含安装及运输费。'],
+                ['单号：LH-BJ-__________', '', '', '', '报价日期：    年    月    日'],
+                ['客户名称：', '', '', '联系人 / 电话：', ''],
+                ['项目名称：', '', '', '', ''],
                 [],
-                ['序号', '项目名称', '规格/材质说明', '单位', '数量', '单价（元）', '小计（元）', '备注'],
-                ['1', '', '', '步', '1', '', '', ''],
-                ['2', '', '', '步', '1', '', '', ''],
-                ['3', '', '', '套', '1', '', '', ''],
-                ['4', '', '', '项', '1', '', '', ''],
-                [],
-                ['补充条款：报价有效期30天；工厂交货，不含安装/运输；预付50%，发货前结清。'],
-              ]);
-              ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
-              ws['!cols'] = [{ wch: 6 }, { wch: 20 }, { wch: 40 }, { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 16 }];
-              name = '旋转钢梯报价导入模板.xlsx';
-            } else {
-              ws = XLSX.utils.aoa_to_sheet([
-                ['不锈钢圆管拉弯报价单'],
-                [],
-                ['序号', '名称', '规格（mm)', '半径（mm)', '数量(米）', '单价（元/米）', '金额（元）', '备注'],
+                ['序号', '项目名称', '规格 / 材质说明', '单位', '数量', '单价（元）', '小计（元）', '备注'],
                 ['1', '', '', '', '', '', '', ''],
                 ['2', '', '', '', '', '', '', ''],
                 ['3', '', '', '', '', '', '', ''],
+                ['4', '', '', '', '', '', '', ''],
+                ['5', '', '', '', '', '', '', ''],
+                ['6', '', '', '', '', '', '', ''],
+                ['7', '', '', '', '', '', '', ''],
+                ['8', '', '', '', '', '', '', ''],
                 [],
-                ['备注：以上报价含模具费、拉弯费、运输费及13%税金。'],
-                ['报价单位：河北龙瀚金属制品有限公司'],
+                ['合计（含税）', '', '', '', '', '', '', ''],
+                ['人民币大写：', '', '', '', '', '', '', ''],
+                [],
+                ['报价说明：'],
+                ['1、本报价为出厂含税价（增值税税率 13%），不含运输、安装及现场配合费用。'],
+                ['2、报价有效期：自出具之日起 30 天；主要原材料价格波动超过 ±5% 时，双方另行协商调价。'],
+                ['3、付款方式：合同签订后预付 50%，发货前结清全部余款。'],
+                ['4、单位填写参考：步 / 套 / 项 / 米 / 根 / 件（按实际项目填写，注意不要留空）。'],
+                [],
+                ['报价人：______________          审核人：______________          （公司盖章）'],
               ]);
-              ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
-              ws['!cols'] = [{ wch: 6 }, { wch: 18 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 16 }];
-              name = '拉弯报价导入模板.xlsx';
+              ws['!merges'] = [
+                { s: { r: 0, c: 0 }, e: { r: 0, c: 7 } },
+                { s: { r: 1, c: 0 }, e: { r: 1, c: 7 } },
+                { s: { r: 20, c: 0 }, e: { r: 20, c: 7 } },
+                { s: { r: 21, c: 0 }, e: { r: 21, c: 7 } },
+              ];
+              ws['!cols'] = [{ wch: 7 }, { wch: 22 }, { wch: 42 }, { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 18 }];
+              name = '旋转楼梯报价单模板.xlsx';
+            } else {
+              ws = XLSX.utils.aoa_to_sheet([
+                ['河北龙瀚金属制品有限公司'],
+                ['拉弯加工报价单'],
+                [],
+                ['单号：LH-LW-__________', '', '', '', '报价日期：    年    月    日'],
+                ['客户名称：', '', '', '联系人 / 电话：', ''],
+                [],
+                ['序号', '名称', '规格（mm）', '半径（mm）', '数量（米）', '单位', '单价（元/米）', '金额（元）', '备注'],
+                ['1', '示例：不锈钢圆管', '159×3.0', '7600', '100', '米', '45', '', '此行为示例，导入前请删除'],
+                ['2', '', '', '', '', '米', '', '', ''],
+                ['3', '', '', '', '', '米', '', '', ''],
+                ['4', '', '', '', '', '米', '', '', ''],
+                ['5', '', '', '', '', '米', '', '', ''],
+                ['6', '', '', '', '', '米', '', '', ''],
+                ['7', '', '', '', '', '米', '', '', ''],
+                ['8', '', '', '', '', '米', '', '', ''],
+                [],
+                ['合计'],
+                [],
+                ['报价说明：'],
+                ['1、以上单价含模具费、拉弯费、运输费及 13% 税金；数量按实际拉弯米数结算。'],
+                ['2、常规交货周期：确认订单后 5-7 个工作日，特殊规格另行确认。'],
+                ['3、单位默认为"米"；如需按"根"计价请在备注中注明。'],
+                ['4、"税金""合计"等汇总行无需填写，系统导入时自动计算总金额。'],
+                [],
+                ['报价人：______________          审核人：______________          （公司盖章）'],
+              ]);
+              ws['!merges'] = [
+                { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } },
+                { s: { r: 1, c: 0 }, e: { r: 1, c: 8 } },
+                { s: { r: 18, c: 0 }, e: { r: 18, c: 8 } },
+                { s: { r: 19, c: 0 }, e: { r: 19, c: 8 } },
+              ];
+              ws['!cols'] = [{ wch: 7 }, { wch: 20 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 8 }, { wch: 14 }, { wch: 12 }, { wch: 20 }];
+              name = '拉弯报价单模板.xlsx';
             }
             const ws2 = XLSX.utils.aoa_to_sheet([
               ['填写说明'],
-              ['1. 在"明细"工作表的表头下逐行填写，金额/小计列不用填（系统自动按数量×单价计算）。'],
-              ['2. 客户名称不在表内：导入后请在弹窗顶部手动选择客户（一个文件对应一个客户）。'],
-              ['3. 旋转钢梯模板：填 项目名称/规格材质/单位/数量/单价；拉弯模板：填 名称/规格/半径/数量(米)/单价(元/米)，半径会自动并入规格。'],
-              ['4. "税金""合计"等行不用填，系统自动计算总金额。'],
-              ['5. 填完保存后，点"导入 Excel 表格"选择此文件，再核对新弹窗里的明细与金额。'],
+              ['1. 在"明细"工作表的表头下方逐行填写；导入时系统自动识别列，并自动跳过说明、合计等非数据行。'],
+              ['2. 客户名称：需与系统客户管理中的名称完全一致；导入后系统会自动选中该客户（一个文件对应一个客户）。'],
+              ['3. 产品名称：与产品库一致的会自动带出规格与参考单价；库里没有的可直接填写，作为自定义产品。'],
+              ['4. 数量、单价：请填写数字。"税金""合计"等汇总信息不需要填写，系统按 数量 × 单价 自动计算总金额。'],
+              ['5. 填写完成后保存文件，回到本弹窗点击"导入 Excel 表格"或直接把文件拖入虚线框。支持连续导入多个表格，明细会自动累加。'],
+              ['6. 导入的表格文件会自动存入本条报价的附件留档，成交后随订单继续保留。'],
             ]);
-            ws2['!cols'] = [{ wch: 100 }];
+            ws2['!cols'] = [{ wch: 110 }];
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, '明细');
             XLSX.utils.book_append_sheet(wb, ws2, '填写说明');
@@ -557,7 +618,8 @@
             return { productId: (p || {}).id || '', name: (r.name || '').trim() || (p ? p.name : ''), spec: (r.spec || '').trim(), unit: r.unit, qty: r.qty, price: r.price };
           });
           let noteVal = box.querySelector('#qNote').value;
-          if (importedFile) noteVal += (noteVal ? '\n' : '') + '[导入文件]' + importedFile.name + '|' + importedFile.url;
+          const metas = (await Promise.all(importedFiles)).filter(Boolean);
+          metas.forEach(m => { noteVal += (noteVal ? '\n' : '') + '[导入文件]' + m.name + '|' + m.url; });
           const res = await saveQuote({
             customerId: cSel.value, items, owner: sess.userId, note: noteVal,
           });
