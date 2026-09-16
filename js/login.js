@@ -66,16 +66,18 @@
     location.replace('index.html');
   }
 
-  document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener('DOMContentLoaded', async () => {
     if (App.session()) { logout(); }
-    renderUsers();
-    /* 默认预填 admin */
-    const u = DB.users[0];
+    /* 等账号列表渲染完（云端拉取是异步的），否则 .login-user 不存在会崩掉按钮绑定 */
+    await renderUsers();
+    const users = _cloudUsers || DB.users;
+    const u = users[0];
     if (u) {
       selected.uid = u.id;
       document.getElementById('userInput').value = u.userName || '';
       document.getElementById('pwdInput').value = u.pwd || '';
-      document.querySelector('.login-user').classList.add('active');
+      const first = document.querySelector('.login-user');
+      if (first) first.classList.add('active');
     }
     document.getElementById('loginBtn').addEventListener('click', doLogin);
     document.getElementById('pwdInput').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });

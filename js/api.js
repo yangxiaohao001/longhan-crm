@@ -118,10 +118,12 @@ function _syncCustomerStage(cid) {
   if (!c || c.stage === '已流失') return;
   const os = _customerOrders(cid);
   if (!os.length) return;
+  const prev = c.stage;
   if (os.some(o => o.status === '已发货')) c.stage = '已发货';
   else if (os.some(o => o.status === '生产中')) c.stage = '生产中';
   else if (os.some(o => o.status === '已下单')) c.stage = '已下单';
   else if (os.every(o => o.status === '已收款')) c.stage = '已收款';
+  if (c.stage !== prev) _cloudSync("customers", "upsert", c);
 }
 
 function _customerView(c) {
@@ -581,6 +583,7 @@ async function createQuoteVersion(id, payload) {
       deltaPct: Math.round((newTotal - prevTotal) / prevTotal * 1000) / 10,
     };
   }
+  _cloudSync("quotes", "upsert", q);
   return { code: 0, data: { ..._quoteView(q), delta: { amount: newTotal - prevTotal, pct: Math.round((newTotal - prevTotal) / prevTotal * 1000) / 10 } } };
 }
 
@@ -676,7 +679,7 @@ async function markQuoteDeal(id) {
     q.dealOrderId = order.id;
   }
   _syncCustomerStage(q.customerId);
-  return { code: 0, data: { quote: _quoteView(q), order: _orderView(order) } };
+  return { code: 0, data: { quote: (_cloudSync("quotes", "upsert", q), _quoteView(q)), order: _orderView(order) } };
 }
 
 // TODO: replace with fetch('POST /api/quotes/:id/void')
@@ -966,6 +969,7 @@ async function savePayment(payload) {
     o.status = '已收款';
     o.stageDates.done = p.date;
   }
+  _cloudSync("orders", "upsert", o);   /* o.paid/o.status 是属性赋值，必须显式同步 */
   _syncCustomerStage(o.customerId);
   return { code: 0, data: { payment: p, settled } };
 }
@@ -1024,6 +1028,7 @@ async function resolveReminder(id) {
   if (!r) return { code: 1, msg: '提醒不存在' };
   if (r.status === 'done') return { code: 1, msg: '该提醒已处理过' };
   r.status = 'done';
+  _cloudSync("reminders", "upsert", r);
   return { code: 0, data: r };
 }
 
@@ -1049,7 +1054,7 @@ async function login(userId, pwd) {
       if (!u) return { code: 1, msg: '账号不存在（云端共 ' + list.length + ' 个账号）' };
       if (u.active === false) return { code: 1, msg: '该账号已停用，请联系总经理' };
       if ((u.pwd || '123456') !== pwd) return { code: 1, msg: '密码不正确' };
-      const s = { userId: u.id, name: u.name, position: u.position, initial: u.initial, loginAt: DB.today, userName: u.user_name, scopes: userScopes(u), active: u.active };
+      const s = { userId: u.id, name: u.name, position: u.position, initial: u.initial, loginAt: DB.today, userName: (u.user_name || u.userName), scopes: userScopes(u), active: u.active };
       localStorage.setItem('lh-crm-session', JSON.stringify(s));
       return { code: 0, data: s };
     }
@@ -1070,7 +1075,7 @@ async function login(userId, pwd) {
           if (!u) return { code: 1, msg: '账号不存在（云端共 ' + list.length + ' 个账号）' };
           if (u.active === false) return { code: 1, msg: '该账号已停用' };
           if ((u.pwd || '123456') !== pwd) return { code: 1, msg: '密码不正确' };
-          const s = { userId: u.id, name: u.name, position: u.position, initial: u.initial, loginAt: DB.today, userName: u.user_name, scopes: userScopes(u), active: u.active };
+          const s = { userId: u.id, name: u.name, position: u.position, initial: u.initial, loginAt: DB.today, userName: (u.user_name || u.userName), scopes: userScopes(u), active: u.active };
           localStorage.setItem('lh-crm-session', JSON.stringify(s));
           return { code: 0, data: s };
         }
@@ -1172,6 +1177,11 @@ async function savePurchase(payload) {
     approveDate: '', payDate: '', receiveDate: '', note: payload.note || '',
     items: items.map(i => ({ name: i.name, spec: i.spec || '', unit: i.unit || '件', qty: Number(i.qty), price: Number(i.price) || 0 })),
   };
+  /* 总经理发起的采购无需自审批，直接进入「已审批」 */
+  if (App.isBoss && App.isBoss()) {
+    p.status = '已审批';
+    p.approveDate = DB.today;
+  }
   DB.purchases.unshift(p);
   return { code: 0, data: _purchaseView(p) };
 }
@@ -1192,6 +1202,7 @@ async function advancePurchase(id, step) {
   if (step === 'approve') p.approveDate = DB.today;
   if (step === 'pay') p.payDate = DB.today;
   if (step === 'receive') p.receiveDate = DB.today;
+  _cloudSync("purchases", "upsert", p);
   return { code: 0, data: _purchaseView(p) };
 }
 
@@ -1308,6 +1319,7 @@ async function saveSupplier(payload) {
     s.contact = payload.contact || '';
     s.phone = payload.phone || '';
     s.category = payload.category || '其他';
+    _cloudSync("suppliers", "upsert", s);
     return { code: 0, data: s };
   }
   const s = { id: 'sup-' + Date.now().toString(36), name: payload.name.trim(), contact: payload.contact || '', phone: payload.phone || '', category: payload.category || '其他' };
