@@ -205,27 +205,23 @@
         '<div><div class="lbl">约定付款</div>' + (o.paymentDue || '—') + (o.overdueDays > 0 ? ' <span class="overdue-tag still">逾期 ' + o.overdueDays + ' 天</span>' : '') + '</div>' +
         (o.fileCount ? '</div>' +
         '<div class="card" style="margin:0 0 16px"><div class="card-head"><div class="card-title">附件</div><span class="card-sub">' + o.fileCount + ' 个文件</span></div>' +
-        '<div class="card-body">' + o.files.map((f, idx) => {
+        '<div class="card-body"><div class="att-grid">' + o.files.map((f, idx) => {
           const e = (f.name.slice(f.name.lastIndexOf('.') + 1) || '').toUpperCase();
           const isImg = /image/.test(f.mime || '') || ['JPG', 'JPEG', 'PNG', 'GIF', 'WEBP', 'BMP'].includes(e);
-          const badge = isImg ? { t: '图', c: '#4ea8ff' }
-            : e === 'PDF' ? { t: 'PDF', c: '#ff5470' }
-            : (e === 'DOC' || e === 'DOCX') ? { t: 'W', c: '#4ea8ff' }
-            : (e === 'XLS' || e === 'XLSX' || e === 'CSV') ? { t: 'X', c: '#3ddc97' }
-            : (e === 'PPT' || e === 'PPTX') ? { t: 'P', c: '#ffb84d' }
-            : (e === 'ZIP' || e === 'RAR' || e === '7Z') ? { t: 'ZIP', c: '#ffb84d' }
-            : (['DWG', 'DXF', 'STEP', 'STP', 'IGS'].includes(e)) ? { t: 'CAD', c: '#b78cff' }
-            : { t: (e || '文件').slice(0, 4), c: '#5f7189' };
+          const MAP = { DOC: ['#2b7cd3', 'W'], DOCX: ['#2b7cd3', 'W'], XLS: ['#217346', 'X'], XLSX: ['#217346', 'X'], CSV: ['#217346', 'X'], PPT: ['#d24726', 'P'], PPTX: ['#d24726', 'P'], PDF: ['#e2434c', 'PDF'], ZIP: ['#d97706', 'ZIP'], RAR: ['#d97706', 'ZIP'], '7Z': ['#d97706', 'ZIP'], DWG: ['#8b5cf6', 'CAD'], DXF: ['#8b5cf6', 'CAD'], STEP: ['#8b5cf6', 'CAD'], STP: ['#8b5cf6', 'CAD'], TXT: ['#64748b', 'TXT'], HTML: ['#ea580c', 'HTML'] };
+          const badge = MAP[e] || ['#64748b', (e || '文件').slice(0, 4)];
           const size = f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round((f.size || 0) / 1024)) + ' KB';
-          return '<div class="file-card">' +
-            '<div class="fc-icon" style="background:' + badge.c + (isImg && f.url ? ';padding:0;overflow:hidden' : '') + '">' +
-            (isImg && f.url ? '<img src="' + App.escapeHtml(f.url) + '" alt="">' : badge.t) + '</div>' +
-            '<div class="fc-body">' +
-            '<a class="fc-name" href="' + App.escapeHtml(f.url || '#') + '" target="_blank" rel="noopener" title="' + App.escapeHtml(f.name) + '">' + App.escapeHtml(f.name) + '</a>' +
-            '<div class="fc-meta">' + e + ' · ' + size + '</div></div>' +
-            '<button class="btn btn-sm btn-danger" data-delfile="' + idx + '" title="删除附件"><span data-icon="trash-2"></span></button>' +
+          return '<div class="att-tile">' +
+            '<a class="att-thumb" href="' + App.escapeHtml(f.url || '#') + '" target="_blank" rel="noopener">' +
+            (isImg && f.url ? '<img src="' + App.escapeHtml(f.url) + '" alt="">' :
+              '<div class="att-page" style="color:' + badge[0] + '"><span style="' + (badge[1].length > 1 ? 'font-size:12px' : '') + '">' + badge[1] + '</span></div>') +
+            '</a>' +
+            '<button class="att-del" data-delfile="' + idx + '" title="删除附件"><span data-icon="trash-2"></span></button>' +
+            '<div class="att-info">' +
+            '<a class="att-name" href="' + App.escapeHtml(f.url || '#') + '" target="_blank" rel="noopener" title="' + App.escapeHtml(f.name) + '">' + App.escapeHtml(f.name) + '</a>' +
+            '<div class="att-size">' + (isImg ? '图片' : e) + ' · ' + size + '</div></div>' +
             '</div>';
-        }).join('') + '</div></div>'
+        }).join('') + '</div></div></div>'
         : '') + (o.fileCount ? '' : '</div>') +
         (o.note ? '<p class="form-hint" style="margin-top:12px">备注：' + App.escapeHtml(o.note) + '</p>' : '') +
 

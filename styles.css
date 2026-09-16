@@ -696,13 +696,20 @@ html[data-theme="light"] .topbar-theme:hover { color: var(--primary); border-col
 ::-webkit-scrollbar-thumb:hover { background-color: rgba(120, 150, 190, .4); }
 html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, .28); background-clip: content-box; border: 2px solid transparent; }
 
-/* ---------- 附件文件卡片 ---------- */
-.file-card { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); transition: border-color .15s; }
-.file-card:hover { border-color: rgba(120, 150, 190, .38); }
-.file-card + .file-card { margin-top: 8px; }
-.file-card .fc-icon { width: 42px; height: 42px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; letter-spacing: .02em; flex-shrink: 0; color: #fff; }
-.file-card .fc-icon img { width: 100%; height: 100%; object-fit: cover; border-radius: 9px; display: block; }
-.file-card .fc-body { flex: 1; min-width: 0; }
-.file-card .fc-name { font-size: 13px; color: var(--ink); text-decoration: none; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.file-card .fc-name:hover { color: var(--primary); }
-.file-card .fc-meta { font-size: 11.5px; color: var(--ink-faint); margin-top: 2px; }
+/* ---------- 附件网格瓦片（图片缩略图 / 文件页图标） ---------- */
+.att-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; }
+.att-tile { position: relative; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); overflow: hidden; transition: border-color .15s, transform .15s; }
+.att-tile:hover { border-color: rgba(120, 150, 190, .42); transform: translateY(-1px); }
+.att-thumb { display: flex; align-items: center; justify-content: center; height: 92px; background: rgba(7, 12, 21, .45); text-decoration: none; }
+.att-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.att-page { width: 52px; height: 68px; border-radius: 6px; background: #fff; position: relative; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 10px rgba(0, 0, 0, .28); }
+.att-page::after { content: ''; position: absolute; top: 0; right: 0; border-style: solid; border-width: 0 13px 13px 0; border-color: transparent rgba(15, 23, 42, .32) transparent transparent; border-radius: 0 6px 0 0; }
+.att-page span { font-size: 26px; font-weight: 800; }
+.att-del { position: absolute; top: 6px; right: 6px; opacity: 0; transition: opacity .15s; padding: 5px 7px; }
+.att-tile:hover .att-del { opacity: 1; }
+.att-info { padding: 7px 9px 8px; }
+.att-name { font-size: 12px; color: var(--ink); text-decoration: none; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.att-name:hover { color: var(--primary); }
+.att-size { font-size: 11px; color: var(--ink-faint); margin-top: 2px; }
+html[data-theme="light"] .att-thumb { background: #eef2f7; }
+html[data-theme="light"] .att-page { box-shadow: 0 2px 8px rgba(15, 23, 42, .18); }
