@@ -203,12 +203,30 @@
         '<div><div class="lbl">业务员</div>' + App.escapeHtml(o.ownerName) + '</div>' +
         '<div><div class="lbl">下单日期</div>' + o.orderDate + '</div>' +
         '<div><div class="lbl">约定付款</div>' + (o.paymentDue || '—') + (o.overdueDays > 0 ? ' <span class="overdue-tag still">逾期 ' + o.overdueDays + ' 天</span>' : '') + '</div>' +
-        (o.fileCount ? '<div><div class="lbl">附件</div><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">' + o.files.map((f, idx) =>
-          '<a class="chip" href="' + App.escapeHtml(f.url || '#') + '" target="_blank" rel="noopener" style="text-decoration:none">' +
-          '<span data-icon="' + (/image/.test(f.mime || '') ? 'image' : 'file') + '"></span>' + App.escapeHtml(f.name) + '</a>' +
-          '<button class="btn btn-sm btn-danger" data-delfile="' + idx + '"><span data-icon="trash-2"></span></button>'
-        ).join('') + '</div></div>' : '') +
-        '</div>' +
+        (o.fileCount ? '</div>' +
+        '<div class="card" style="margin:0 0 16px"><div class="card-head"><div class="card-title">附件</div><span class="card-sub">' + o.fileCount + ' 个文件</span></div>' +
+        '<div class="card-body">' + o.files.map((f, idx) => {
+          const e = (f.name.slice(f.name.lastIndexOf('.') + 1) || '').toUpperCase();
+          const isImg = /image/.test(f.mime || '') || ['JPG', 'JPEG', 'PNG', 'GIF', 'WEBP', 'BMP'].includes(e);
+          const badge = isImg ? { t: '图', c: '#4ea8ff' }
+            : e === 'PDF' ? { t: 'PDF', c: '#ff5470' }
+            : (e === 'DOC' || e === 'DOCX') ? { t: 'W', c: '#4ea8ff' }
+            : (e === 'XLS' || e === 'XLSX' || e === 'CSV') ? { t: 'X', c: '#3ddc97' }
+            : (e === 'PPT' || e === 'PPTX') ? { t: 'P', c: '#ffb84d' }
+            : (e === 'ZIP' || e === 'RAR' || e === '7Z') ? { t: 'ZIP', c: '#ffb84d' }
+            : (['DWG', 'DXF', 'STEP', 'STP', 'IGS'].includes(e)) ? { t: 'CAD', c: '#b78cff' }
+            : { t: (e || '文件').slice(0, 4), c: '#5f7189' };
+          const size = f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round((f.size || 0) / 1024)) + ' KB';
+          return '<div class="file-card">' +
+            '<div class="fc-icon" style="background:' + badge.c + (isImg && f.url ? ';padding:0;overflow:hidden' : '') + '">' +
+            (isImg && f.url ? '<img src="' + App.escapeHtml(f.url) + '" alt="">' : badge.t) + '</div>' +
+            '<div class="fc-body">' +
+            '<a class="fc-name" href="' + App.escapeHtml(f.url || '#') + '" target="_blank" rel="noopener" title="' + App.escapeHtml(f.name) + '">' + App.escapeHtml(f.name) + '</a>' +
+            '<div class="fc-meta">' + e + ' · ' + size + '</div></div>' +
+            '<button class="btn btn-sm btn-danger" data-delfile="' + idx + '" title="删除附件"><span data-icon="trash-2"></span></button>' +
+            '</div>';
+        }).join('') + '</div></div>'
+        : '') + (o.fileCount ? '' : '</div>') +
         (o.note ? '<p class="form-hint" style="margin-top:12px">备注：' + App.escapeHtml(o.note) + '</p>' : '') +
 
         '<div id="dropZone" style="margin-top:14px;border:2px dashed var(--border-strong);border-radius:10px;padding:18px 12px;text-align:center;cursor:pointer;transition:all .15s;color:var(--ink-sub)">' +
