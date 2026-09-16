@@ -1,10 +1,25 @@
 # 龙瀚 CRM 项目交接文档（给 WorkBuddy）
 
-> 写给下一个接手的 AI 助手。请通读本文档后再动代码。最后更新：2026-09-16（WorkBuddy 接手首轮修改完成，见第四节状态）
+> 写给下一个接手的 AI 助手。请通读本文档后再动代码。最后更新：2026-09-16 第二轮（用户实测反馈 4 项已修，见「第二轮记录」）
 
 ---
 
-## ⚡ WorkBuddy 接手记录（2026-09-16）
+## ⚡ 第二轮记录（2026-09-16 上午，用户实测反馈）
+
+**纠正第三节第 5 点**：本项目部署实际走 **GitHub push → Cloudflare 自动部署**（Git 连接项目没有 zip 上传入口）。桌面 `push-crm.bat` 是一键推送脚本（GitHub 凭证已缓存，双击即推）。
+
+**修了 4 项（用户实测反馈）：**
+
+1. ✅ **订单页一直转圈** —— 根因：`db.js` 从云端读回的行是 snake_case（order_date），代码全用 camelCase（orderDate），orders.js:35 `o.orderDate.slice` 直接 TypeError → 永远骨架屏。**修复：db.js 新增 `_fromRow()`，dbInit/dbList 读回时统一 snake→camel**（系统性修复，payments/followups/user_name 等多词字段全部受益）。orders.js/api.js 的 orderDate 排序处加了空值防御。
+2. ✅ **账号管理：编辑后刷新重置、改的密码登不上** —— 根因：数组钩子只拦 push/splice，**属性赋值（u.userName=…）不触发同步**。新建其实能同步（实测落库成功），但编辑登录名/密码/停用切换只写内存。修复：settings.js 增加 `syncUser()`，编辑保存/停用启用/重置密码后显式 `_cloudSync('users','upsert',u)`。
+3. ✅ **总经理可删除报价** —— api.js 新增 `deleteQuote()`（已成交并生成订单的拒绝删），quotes.js 抽屉总经理可见「删除报价」按钮 + 二次确认；splice 钩子自动云同步 delete。顺带修掉 submitQuote 里重复的两次 upsert。
+4. ✅ **产品库管理** —— 设置页新增「产品库管理」卡片：总经理可增/删/改产品（name/spec/unit/price），增删改均显式云同步 products 表。同时报价弹窗（新建+调价）明细行的**名称/规格也可直接编辑**（换产品自动带出默认值，按改后值保存）——金属加工常做非标，不再受产品库限制。
+
+**回归**：jsdom 连真实 Supabase 云端测试 9 项全过（orders 渲染出真实订单 SO2026-001、设置页产品卡渲染、quotes 正常）；本地 mock 冒烟 20 项全过。测试脚本：工作区 `cloud_test2.js`（云模式）、`smoke_test.js`（本地模式）。**云模式 jsdom 需 polyfill `window.fetch`（supabase-js 依赖它）**。
+
+---
+
+## ⚡ 第一轮记录（2026-09-16 凌晨）
 
 **第四节 5 个待修问题已全部修完**，另修了 3 个交接文档第五节的「高优先级」问题：
 

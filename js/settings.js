@@ -31,6 +31,9 @@
   /* ----- 内部工具 ----- */
   const _u = id => DB.users.find(x => x.id === id);
   const _uid = () => 'u' + Date.now().toString(36);
+  /* 属性直接赋值不会触发数组钩子，必须显式云同步（否则刷新后改动丢失） */
+  function syncUser(u) { if (typeof _cloudSync === 'function') _cloudSync('users', 'upsert', u); }
+  function syncProduct(p, op) { if (typeof _cloudSync === 'function') _cloudSync('products', op || 'upsert', p); }
 
   /* ---------- 渲染 ---------- */
   function render() {
@@ -65,9 +68,24 @@
         '</div></div></div>';
     }).join('');
 
+    /* 产品库管理 */
+    const prodRows = DB.products.map(p =>
+      '<tr><td style="font-weight:600">' + App.escapeHtml(p.name) + '</td>' +
+      '<td class="sub-line">' + App.escapeHtml(p.spec || '—') + '</td>' +
+      '<td>' + App.escapeHtml(p.unit || '—') + '</td>' +
+      '<td class="money">' + App.fmtMoney(p.price) + '</td>' +
+      '<td class="row-actions" style="justify-content:flex-end">' +
+      '<button class="btn btn-sm" data-pedit="' + p.id + '"><span data-icon="pencil"></span>编辑</button>' +
+      '<button class="btn btn-sm btn-danger" data-pdel="' + p.id + '"><span data-icon="trash-2"></span>删除</button></td></tr>').join('');
+    const prodCard = '<div class="card" style="margin-bottom:16px"><div class="card-head"><div class="card-title">产品库管理</div>' +
+      '<span class="card-sub">' + DB.products.length + ' 个产品 · 新建报价时从这里带出</span>' +
+      '<div class="card-tools"><button class="btn btn-primary btn-sm" id="addProd"><span data-icon="plus"></span>新增产品</button></div></div>' +
+      '<div class="card-body table-wrap"><table class="table"><thead><tr><th>产品名称</th><th>规格</th><th>单位</th><th>参考单价</th><th></th></tr></thead><tbody>' +
+      (prodRows || '<tr><td colspan="5"><div class="empty"><p>还没有产品，点右上角「新增产品」建立常用产品库</p></div></td></tr>') +
+      '</tbody></table></div></div>';
+
     /* 业务规则 */
-    const rules = '<div class="card" style="margin-bottom:16px"><div class="card-head"><div class="card-title">业务规则</div></div>' +
-      '<div class="card-body"><div class="field"><label>发货前最低定金比例（%）</label>' +
+    const rules = '<div class="card" style="margin-bottom:16px"><div class="card-head"><div class="card-title">业务规则</div></div>' +      '<div class="card-body"><div class="field"><label>发货前最低定金比例（%）</label>' +
       '<div class="row-actions"><input class="input num" id="depPct" type="number" min="0" max="100" value="' + (DB.settings.depositPct || 30) + '" style="width:110px">' +
       '<button class="btn btn-primary btn-sm" id="savePct">保存</button></div>' +
       '<p class="form-hint" style="margin-top:8px">订单「生产中 → 已发货」时校验：定金未达比例，业务员无法推进，需总经理在弹窗中确认。</p></div>' +
@@ -102,6 +120,7 @@
       '<div class="card" style="margin-bottom:16px"><div class="card-head"><div class="card-title">账号管理</div><span class="card-sub">' + DB.users.length + ' 个账号</span>' +
       '<div class="card-tools"><button class="btn btn-primary btn-sm" id="addUser"><span data-icon="user-plus"></span>新增账号</button></div></div>' +
       '<div class="card-body">' + userCards + '</div></div>' +
+      prodCard +
       rules +
       '</div><div>' +
       cloud +
@@ -118,6 +137,7 @@
       const u = _u(b.dataset.toggle);
       if (!u) return;
       u.active = u.active === false ? true : false;
+      syncUser(u);
       App.toast((u.active ? '已启用 ' : '已停用 ') + u.name);
       render();
     }));
@@ -136,6 +156,26 @@
       });
     }));
     root.querySelector('#addUser').addEventListener('click', () => editUserModal(null));
+
+    /* 产品库按钮 */
+    root.querySelector('#addProd').addEventListener('click', () => editProdModal(null));
+    root.querySelectorAll('[data-pedit]').forEach(b => b.addEventListener('click', () => editProdModal(b.dataset.pedit)));
+    root.querySelectorAll('[data-pdel]').forEach(b => b.addEventListener('click', () => {
+      const p = DB.products.find(x => x.id === b.dataset.pdel);
+      if (!p) return;
+      App.confirm({
+        title: '删除产品「' + p.name + '」？',
+        html: '只从产品库中移除，<b>历史报价单不受影响</b>（报价里保存的是当时的明细副本）。此操作不可恢复。',
+        okText: '确认删除', danger: true,
+        onOk: () => {
+          const i = DB.products.findIndex(x => x.id === p.id);
+          if (i >= 0) DB.products.splice(i, 1);
+          syncProduct({ id: p.id }, 'delete');
+          App.toast('产品已删除');
+          render();
+        },
+      });
+    }));
 
     /* 业务规则 */
     root.querySelector('#savePct').addEventListener('click', async e => {
@@ -167,6 +207,51 @@
     });
 
     App.mountIcons(root);
+  }
+
+  /* ----- 产品库编辑（新增/修改） ----- */
+  function editProdModal(id) {
+    const p = id ? DB.products.find(x => x.id === id) : null;
+    const isNew = !p;
+    const row = p || { id: 'p' + Date.now().toString(36), name: '', spec: '', unit: '吨', price: 0 };
+    App.openModal({
+      title: isNew ? '新增产品' : '编辑产品 · ' + p.name,
+      html:
+        '<div class="form-grid">' +
+        '<div class="form-item"><label>产品名称<b>*</b></label><input class="input" id="pName" value="' + App.escapeHtml(row.name) + '" placeholder="如：镀锌角钢"><p class="form-error"></p></div>' +
+        '<div class="form-item"><label>规格</label><input class="input" id="pSpec" value="' + App.escapeHtml(row.spec || '') + '" placeholder="如：50×50×5mm Q235B"></div>' +
+        '<div class="form-item"><label>默认单位</label><select class="select" id="pUnit">' + ['吨', '根', '件', '米', '套', '个', '平方'].map(u => '<option' + (u === (row.unit || '吨') ? ' selected' : '') + '>' + u + '</option>').join('') + '</select></div>' +
+        '<div class="form-item"><label>参考单价（元）<b>*</b></label><input class="input num" id="pPrice" type="number" min="0" step="0.01" value="' + (row.price || 0) + '"><p class="form-error"></p></div>' +
+        '</div>' +
+        '<p class="form-hint">这里维护的是<b>常用产品库</b>：业务员新建报价时一键带出名称 / 规格 / 单价，报价里仍可临时改价。</p>',
+      foot: '<button class="btn" data-act="cancel">取消</button><button class="btn btn-primary" data-act="ok">' + (isNew ? '创建产品' : '保存') + '</button>',
+      onMount(box) {
+        box.querySelector('[data-act="cancel"]').addEventListener('click', () => App.closeModal());
+        box.querySelector('[data-act="ok"]').addEventListener('click', async e => {
+          const btn = e.currentTarget;
+          const nEl = box.querySelector('#pName'), prEl = box.querySelector('#pPrice');
+          [nEl, prEl].forEach(App.formClear);
+          if (!nEl.value.trim()) return App.formError(nEl, '请填写产品名称');
+          const price = Number(prEl.value);
+          if (isNaN(price) || price < 0) return App.formError(prEl, '请填写正确的单价');
+          row.name = nEl.value.trim();
+          row.spec = box.querySelector('#pSpec').value.trim();
+          row.unit = box.querySelector('#pUnit').value;
+          row.price = price;
+          App.btnLoading(btn);
+          if (isNew) { DB.products.push(row); syncProduct(row); }
+          else {
+            const i = DB.products.findIndex(x => x.id === row.id);
+            if (i >= 0) DB.products[i] = row;
+            syncProduct(row);
+          }
+          App.btnDone(btn);
+          App.closeModal();
+          App.toast(isNew ? '产品已添加' : '产品已保存');
+          render();
+        });
+      },
+    });
   }
 
   /* ----- 账号编辑（新增/修改） ----- */
@@ -227,7 +312,8 @@
           u.initial = (box.querySelector('#uInitial').value || u.name.slice(0, 1)).slice(0, 1);
           u.scopes = allBox.checked ? ['*'] : Array.from(box.querySelectorAll('[data-mod]:checked')).map(c => c.dataset.mod);
           u.active = u.active !== false;
-          if (isNew) DB.users.push(u);
+          if (isNew) DB.users.push(u);            /* push 钩子自动云同步 */
+          else syncUser(u);                        /* 编辑是属性赋值，必须显式同步 */
           App.btnLoading(btn);
           await new Promise(r => setTimeout(r, 200));
           App.btnDone(btn);
@@ -254,6 +340,7 @@
           App.formClear(pEl);
           if (!pEl.value.trim() || pEl.value.length < 4) return App.formError(pEl, '至少 4 个字符');
           u.pwd = pEl.value;
+          syncUser(u);
           App.btnLoading(btn);
           setTimeout(() => { App.btnDone(btn); App.closeModal(); App.toast('密码已重置'); }, 200);
         });

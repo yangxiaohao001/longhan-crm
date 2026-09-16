@@ -153,6 +153,7 @@
         (canEdit && q.status === '已发送' ? '<button class="btn btn-primary" id="qDeal"><span data-icon="check-circle"></span>标记成交（自动生成订单）</button>' : '') +
         (canEdit && q.status === '已发送' ? '<button class="btn" id="qAdjust"><span data-icon="pencil"></span>调价（新版本）</button>' : '') +
         (q.status === '待审批' ? '<span class="form-hint">审批中，等老板批复</span>' : '') +
+        (App.isBoss() && !q.dealOrderId ? '<button class="btn btn-danger" id="qDel"><span data-icon="trash-2"></span>删除报价</button>' : '') +
         (q.dealOrderId ? '<a class="btn" href="orders.html?oid=' + q.dealOrderId + '">查看关联订单</a>' : '') +
         '</div>',
 
@@ -179,6 +180,17 @@
         }));
         const adj = box.querySelector('#qAdjust');
         if (adj) adj.addEventListener('click', () => adjustModal(q));
+        const del = box.querySelector('#qDel');
+        if (del) del.addEventListener('click', () => App.confirm({
+          title: '删除报价 ' + q.no + '？',
+          html: '将删除该报价的<b>全部版本</b>与审批记录。客户与订单不受影响。此操作不可恢复。',
+          okText: '确认删除', danger: true,
+          onOk: async () => {
+            const r = await deleteQuote(id);
+            if (r.code !== 0) return App.toast(r.msg, 'danger');
+            App.toast('报价已删除'); App.closeDrawer(); renderList();
+          },
+        }));
         App.mountIcons(box);
       },
     });
@@ -190,6 +202,7 @@
     const cur = q.versions[q.version - 1];
     const rows = cur.items.map(i => ({
       pid: i.productId || products.find(p => p.name === i.name)?.id || products[0].id,
+      name: i.name || '', spec: i.spec || '',
       qty: i.qty, price: i.price,
       unit: i.unit || (products.find(p => p.name === i.name) || {}).unit || '件',
     }));
@@ -212,16 +225,27 @@
         function renderRows() {
           rowsEl.innerHTML = rows.map((r, i) => {
             const p = products.find(x => x.id === r.pid) || {};
-            return '<div class="row-actions" style="margin-bottom:8px" data-row="' + i + '">' +
-              '<select class="select a-pid" style="flex:2">' +
-              products.map(x => '<option value="' + x.id + '"' + (x.id === r.pid ? ' selected' : '') + '>' + x.name + ' · ' + x.spec + '</option>').join('') + '</select>' +
-              '<input class="input a-qty num" type="number" min="1" value="' + r.qty + '" style="width:80px" title="数量">' +
-              '<input class="input a-price num" type="number" min="0" step="0.01" value="' + r.price + '" style="width:110px" title="单价（可改）">' +
-              '<select class="select a-unit" style="width:76px" title="单位">' +
+            return '<div class="row-actions" style="margin-bottom:8px;flex-wrap:wrap" data-row="' + i + '">' +
+              '<select class="select a-pid" style="flex:1;min-width:150px" title="从产品库快速选（选后可改）">' +
+              products.map(x => '<option value="' + x.id + '"' + (x.id === r.pid ? ' selected' : '') + '>' + x.name + '</option>').join('') + '</select>' +
+              '<input class="input a-name" value="' + App.escapeHtml(r.name || '') + '" style="flex:1;min-width:120px" placeholder="名称（可改）" title="名称（可改）">' +
+              '<input class="input a-spec" value="' + App.escapeHtml(r.spec || '') + '" style="flex:1.3;min-width:140px" placeholder="规格（可改）" title="规格（可改）">' +
+              '<input class="input a-qty num" type="number" min="1" value="' + r.qty + '" style="width:74px" title="数量">' +
+              '<input class="input a-price num" type="number" min="0" step="0.01" value="' + r.price + '" style="width:108px" title="单价（可改）">' +
+              '<select class="select a-unit" style="width:72px" title="单位">' +
               unitOptions(r.unit).map(u => '<option' + (u === r.unit ? ' selected' : '') + '>' + u + '</option>').join('') + '</select>' +
               '<button class="btn btn-sm btn-danger a-del"><span data-icon="trash-2"></span></button></div>';
           }).join('');
-          rowsEl.querySelectorAll('.a-pid').forEach(sel => sel.addEventListener('change', () => { rows[Number(sel.closest('[data-row]').dataset.row)].pid = sel.value; calc(); }));
+          rowsEl.querySelectorAll('.a-pid').forEach(sel => sel.addEventListener('change', () => {
+            const i = Number(sel.closest('[data-row]').dataset.row);
+            const p = products.find(x => x.id === sel.value);
+            rows[i].pid = sel.value;
+            rows[i].name = p ? p.name : rows[i].name;
+            rows[i].spec = p ? p.spec : rows[i].spec;
+            renderRows(); calc();
+          }));
+          rowsEl.querySelectorAll('.a-name').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].name = inp.value; }));
+          rowsEl.querySelectorAll('.a-spec').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].spec = inp.value; }));
           rowsEl.querySelectorAll('.a-qty').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].qty = Number(inp.value) || 1; calc(); }));
           rowsEl.querySelectorAll('.a-price').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].price = Number(inp.value) || 0; calc(); }));
           rowsEl.querySelectorAll('.a-unit').forEach(sel => sel.addEventListener('change', () => { rows[Number(sel.closest('[data-row]').dataset.row)].unit = sel.value; }));
@@ -232,13 +256,13 @@
           App.mountIcons(rowsEl);
         }
         renderRows(); calc();
-        box.querySelector('#adjAdd').addEventListener('click', () => { rows.push({ pid: products[0].id, qty: 1, price: products[0].price, unit: products[0].unit }); renderRows(); calc(); });
+        box.querySelector('#adjAdd').addEventListener('click', () => { rows.push({ pid: products[0].id, name: products[0].name, spec: products[0].spec, qty: 1, price: products[0].price, unit: products[0].unit }); renderRows(); calc(); });
         box.querySelector('[data-act="cancel"]').addEventListener('click', () => App.closeModal());
         box.querySelector('[data-act="ok"]').addEventListener('click', async e => {
           const btn = e.currentTarget;
           const items = rows.map(r => {
             const p = products.find(x => x.id === r.pid);
-            return { productId: p.id, name: p.name, spec: p.spec, unit: r.unit, qty: r.qty, price: r.price };
+            return { productId: p.id, name: (r.name || '').trim() || p.name, spec: (r.spec || '').trim(), unit: r.unit, qty: r.qty, price: r.price };
           });
           App.btnLoading(btn);
           const res = await createQuoteVersion(q.id, { items, note: box.querySelector('#adjNote').value });
@@ -255,7 +279,7 @@
   /* ---------- 新建报价（产品行编辑） ---------- */
   function addModal() {
     const products = DB.products;
-    let rows = [{ pid: products[0].id, qty: 1, price: products[0].price, unit: products[0].unit }];
+    let rows = [{ pid: products[0].id, name: products[0].name, spec: products[0].spec, qty: 1, price: products[0].price, unit: products[0].unit }];
     App.openModal({
       title: '新建报价',
       wide: true,
@@ -282,25 +306,31 @@
         function renderRows() {
           rowsEl.innerHTML = rows.map((r, i) => {
             const p = products.find(x => x.id === r.pid) || {};
-            return '<div class="row-actions" style="margin-bottom:8px" data-row="' + i + '">' +
-              '<select class="select q-pid" style="flex:2">' +
-              products.map(x => '<option value="' + x.id + '"' + (x.id === r.pid ? ' selected' : '') + '>' + x.name + ' · ' + x.spec + '</option>').join('') + '</select>' +
-              '<input class="input q-qty num" type="number" min="1" value="' + r.qty + '" style="width:80px" placeholder="数量" title="数量">' +
-              '<input class="input q-price num" type="number" min="0" step="0.01" value="' + r.price + '" style="width:110px" placeholder="单价" title="单价（可改）">' +
-              '<select class="select q-unit" style="width:76px" title="单位">' +
+            return '<div class="row-actions" style="margin-bottom:8px;flex-wrap:wrap" data-row="' + i + '">' +
+              '<select class="select q-pid" style="flex:1;min-width:150px" title="从产品库快速选（选后可改）">' +
+              products.map(x => '<option value="' + x.id + '"' + (x.id === r.pid ? ' selected' : '') + '>' + x.name + '</option>').join('') + '</select>' +
+              '<input class="input q-name" value="' + App.escapeHtml(r.name || '') + '" style="flex:1;min-width:120px" placeholder="名称（可改）" title="名称（可改）">' +
+              '<input class="input q-spec" value="' + App.escapeHtml(r.spec || '') + '" style="flex:1.3;min-width:140px" placeholder="规格（可改）" title="规格（可改）">' +
+              '<input class="input q-qty num" type="number" min="1" value="' + r.qty + '" style="width:74px" placeholder="数量" title="数量">' +
+              '<input class="input q-price num" type="number" min="0" step="0.01" value="' + r.price + '" style="width:108px" placeholder="单价" title="单价（可改）">' +
+              '<select class="select q-unit" style="width:72px" title="单位">' +
               unitOptions(r.unit || p.unit).map(u => '<option' + (u === (r.unit || p.unit) ? ' selected' : '') + '>' + u + '</option>').join('') + '</select>' +
-              '<span class="money q-sub" style="flex:none;width:100px;text-align:right">' + App.fmtMoney((r.price || 0) * r.qty) + '</span>' +
+              '<span class="money q-sub" style="flex:none;width:96px;text-align:right">' + App.fmtMoney((r.price || 0) * r.qty) + '</span>' +
               '<button class="btn btn-sm btn-danger q-del"' + (rows.length === 1 ? ' disabled' : '') + '><span data-icon="trash-2"></span></button></div>';
           }).join('');
           rowsEl.querySelectorAll('.q-pid').forEach(sel => sel.addEventListener('change', () => {
             const i = Number(sel.closest('[data-row]').dataset.row);
             const p = products.find(x => x.id === sel.value);
-            /* 换产品：单价/单位带出产品库默认值（单价仍可手改） */
+            /* 换产品：带出产品库默认值（名称/规格/单价/单位均可再手改） */
             rows[i].pid = sel.value;
+            rows[i].name = p ? p.name : rows[i].name;
+            rows[i].spec = p ? p.spec : rows[i].spec;
             rows[i].price = p ? p.price : rows[i].price;
             rows[i].unit = p ? p.unit : rows[i].unit;
             renderRows(); calc();
           }));
+          rowsEl.querySelectorAll('.q-name').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].name = inp.value; }));
+          rowsEl.querySelectorAll('.q-spec').forEach(inp => inp.addEventListener('input', () => { rows[Number(inp.closest('[data-row]').dataset.row)].spec = inp.value; }));
           rowsEl.querySelectorAll('.q-qty').forEach(inp => inp.addEventListener('input', () => {
             const i = Number(inp.closest('[data-row]').dataset.row);
             rows[i].qty = Math.max(1, Number(inp.value) || 1); calc();
@@ -321,7 +351,7 @@
           App.mountIcons(rowsEl);
         }
         renderRows(); calc();
-        box.querySelector('#qAddRow').addEventListener('click', () => { rows.push({ pid: products[0].id, qty: 1, price: products[0].price, unit: products[0].unit }); renderRows(); calc(); });
+        box.querySelector('#qAddRow').addEventListener('click', () => { rows.push({ pid: products[0].id, name: products[0].name, spec: products[0].spec, qty: 1, price: products[0].price, unit: products[0].unit }); renderRows(); calc(); });
         box.querySelector('[data-act="cancel"]').addEventListener('click', () => App.closeModal());
         box.querySelector('[data-act="ok"]').addEventListener('click', async e => {
           const btn = e.currentTarget;
@@ -331,7 +361,7 @@
           App.btnLoading(btn);
           const items = rows.map(r => {
             const p = products.find(x => x.id === r.pid);
-            return { productId: p.id, name: p.name, spec: p.spec, unit: r.unit, qty: r.qty, price: r.price };
+            return { productId: p.id, name: (r.name || '').trim() || p.name, spec: (r.spec || '').trim(), unit: r.unit, qty: r.qty, price: r.price };
           });
           const res = await saveQuote({
             customerId: cSel.value, items, owner: sess.userId, note: box.querySelector('#qNote').value,

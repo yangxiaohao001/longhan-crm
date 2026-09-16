@@ -47,6 +47,16 @@ const TABLES = {
 };
 
 /* 启动时从云拉所有表填到 window.DB；返回是否成功（云模式失败时返回 false） */
+/* 字段映射：云端 snake_case → 内存 camelCase（读取时用；与 _toRow 互为逆操作） */
+function _fromRow(row) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
+  const out = {};
+  for (const k of Object.keys(row)) {
+    out[k.indexOf('_') < 0 ? k : k.replace(/_([a-z0-9])/g, (m, c) => c.toUpperCase())] = row[k];
+  }
+  return out;
+}
+
 async function dbInit() {
   const c = _getSupa();
   if (!c) { _cacheInited = true; return { ok: true, mode: 'local' }; }
@@ -77,19 +87,20 @@ async function dbInit() {
     }
     if (res[0].error) return { ok: false, msg: res[0].error.message };
     if (typeof DB !== 'undefined' && DB) {
-      DB.customers = res[0].data || [];
-      DB.quotes = res[1].data || [];
-      DB.orders = res[2].data || [];
-      DB.payments = res[3].data || [];
-      DB.followups = res[4].data || [];
-      DB.reminders = res[5].data || [];
-      DB.purchases = res[6].data || [];
-      DB.manualLedgers = res[7].data || [];
-      DB.suppliers = res[8].data || [];
-      DB.users = res[9].data || [];
-      DB.products = res[10].data || [];
-      if (res[11].data) DB.settings = res[11].data;
-      if (res[12].data) DB.meta = res[12].data;
+      const M = arr => (arr || []).map(_fromRow);
+      DB.customers = M(res[0].data);
+      DB.quotes = M(res[1].data);
+      DB.orders = M(res[2].data);
+      DB.payments = M(res[3].data);
+      DB.followups = M(res[4].data);
+      DB.reminders = M(res[5].data);
+      DB.purchases = M(res[6].data);
+      DB.manualLedgers = M(res[7].data);
+      DB.suppliers = M(res[8].data);
+      DB.users = M(res[9].data);
+      DB.products = M(res[10].data);
+      if (res[11].data) DB.settings = _fromRow(res[11].data);
+      if (res[12].data) DB.meta = _fromRow(res[12].data);
     }
     _cacheInited = true;
     return { ok: true, mode: 'cloud' };
@@ -144,7 +155,7 @@ async function dbList(table) {
   if (!t) return [];
   const { data, error } = await c.from(t).select('*');
   if (error) return [];
-  return data || [];
+  return (data || []).map(_fromRow);
 }
 
 /* 文件上传 */

@@ -390,7 +390,7 @@ async function fetchCustomerDetail(id) {
       customer: _customerView(c),
       stageProgress: { full: DB.stages, index: DB.stages.indexOf(c.stage), preDeal: PRE_DEAL_STAGES },
       quotes: _customerQuotes(id).map(_quoteView).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-      orders: _customerOrders(id).map(_orderView).sort((a, b) => b.orderDate.localeCompare(a.orderDate)),
+      orders: _customerOrders(id).map(_orderView).sort((a, b) => String(b.orderDate || '').localeCompare(String(a.orderDate || ''))),
       payments: _customerPayments(id)
         .map(p => ({ ...p, orderNo: (_orderById(p.orderId) || { no: '—' }).no }))
         .sort((a, b) => b.date.localeCompare(a.date)),
@@ -596,8 +596,18 @@ async function submitQuote(id) {
   q.approval = { pending: true, requester: q.owner, prevStatus };
   q.updatedAt = DB.today;
   _cloudSync("quotes", "upsert", q);
-  _cloudSync("quotes", "upsert", q);
   return { code: 0, data: _quoteView(q) };
+}
+
+/* 删除报价（总经理）：已成交的不允许删；splice 钩子自动云同步 delete */
+async function deleteQuote(id) {
+  await delay(260);
+  const q = _quoteById(id);
+  if (!q) return { code: 1, msg: '报价单不存在' };
+  if (q.dealOrderId) return { code: 1, msg: '该报价已成交并生成订单，不能直接删除' };
+  const i = DB.quotes.findIndex(x => x.id === id);
+  if (i >= 0) DB.quotes.splice(i, 1);
+  return { code: 0 };
 }
 
 /* 老板审批：通过 → 已发送（默认 15 天有效期）；驳回 → 已驳回 */
@@ -698,7 +708,7 @@ async function fetchOrders(filters) {
     const k = f.keyword.trim();
     list = list.filter(o => o.no.includes(k) || (_customerById(o.customerId) || {}).name.includes(k));
   }
-  list.sort((a, b) => b.orderDate.localeCompare(a.orderDate));
+  list.sort((a, b) => String(b.orderDate || '').localeCompare(String(a.orderDate || '')));
   return { code: 0, data: list.map(_orderView) };
 }
 

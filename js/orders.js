@@ -32,7 +32,7 @@
       (!kw || o.no.includes(kw) || o.customerName.includes(kw)));
 
     const month = (App.today || new Date().toISOString().slice(0, 10)).slice(0, 7);
-    const monthOrders = all.filter(o => o.orderDate.slice(0, 7) === month);
+    const monthOrders = all.filter(o => String(o.orderDate || '').slice(0, 7) === month);
 
     root.innerHTML =
       (App.seeAll() ? '' : '<div class="view-banner"><span data-icon="user"></span>我的订单视图：仅显示我负责的订单</div>') +
