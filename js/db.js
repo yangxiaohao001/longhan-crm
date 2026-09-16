@@ -158,11 +158,14 @@ async function dbList(table) {
   return (data || []).map(_fromRow);
 }
 
-/* 文件上传 */
+/* 文件上传。注意：Supabase Storage 的 key 不接受中文等非 ASCII 字符，
+   存储路径一律用时间戳+随机码+英文扩展名；原始文件名只存在元数据 name 里用于展示 */
 async function dbUpload(orderId, file) {
   const c = _getSupa();
   if (c) {
-    const path = 'orders/' + orderId + '/' + Date.now() + '_' + file.name;
+    const dot = file.name.lastIndexOf('.');
+    const ext = dot >= 0 ? file.name.slice(dot + 1).replace(/[^A-Za-z0-9]/g, '').toLowerCase() : '';
+    const path = 'orders/' + orderId + '/' + Date.now() + '_' + Math.random().toString(36).slice(2, 8) + (ext ? '.' + ext : '.bin');
     const { error } = await c.storage.from('attachments').upload(path, file);
     if (error) return { ok: false, msg: error.message };
     const { data: pub } = c.storage.from('attachments').getPublicUrl(path);

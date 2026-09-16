@@ -211,15 +211,30 @@
         '</div>' +
         (o.note ? '<p class="form-hint" style="margin-top:12px">备注：' + App.escapeHtml(o.note) + '</p>' : '') +
 
-        '<div style="margin-top:14px"><button class="btn" id="dUpload"><span data-icon="upload"></span>上传附件（合同 / 技术协议 / 图纸 / 现场照片）</button>' +
-        '<p class="form-hint" style="margin-top:6px">支持 PDF / Word / Excel / 图片；本地演示模式保存到本机浏览器，配置 Supabase 后自动转云存储。</p></div>',
+        '<div id="dropZone" style="margin-top:14px;border:2px dashed var(--border-strong);border-radius:10px;padding:18px 12px;text-align:center;cursor:pointer;transition:all .15s;color:var(--ink-sub)">' +
+        '<div style="font-size:13.5px;color:var(--ink)"><b>拖拽文件到此处上传</b>（支持从微信 / QQ 直接拖入）</div>' +
+        '<div class="sub-line" style="margin-top:4px">Word / PDF / Excel / 图片 / CAD / 压缩包均可 · 单个不超过 50MB · 可多选</div>' +
+        '<button class="btn btn-sm" id="dUpload" style="margin-top:8px"><span data-icon="upload"></span>或点击选择文件</button>' +
+        '</div>',
       onMount(box) {
         const adv = box.querySelector('#dAdv');
         if (adv) adv.addEventListener('click', () => advance(id, () => { App.closeDrawer(); render(); }));
         const pay = box.querySelector('#dPay');
         if (pay) pay.addEventListener('click', () => payModal(o, () => { App.closeDrawer(); render(); }));
         const up = box.querySelector('#dUpload');
-        if (up) up.addEventListener('click', () => uploadFiles(o, () => { App.closeDrawer(); openDrawer(id); }));
+        if (up) up.addEventListener('click', e => { e.stopPropagation(); uploadFiles(o, () => { App.closeDrawer(); openDrawer(id); }); });
+        /* 拖拽上传：支持从微信 / QQ / 资源管理器直接拖入 */
+        const dz = box.querySelector('#dropZone');
+        if (dz) {
+          const highlight = on => { dz.style.borderColor = on ? 'var(--primary)' : 'var(--border-strong)'; dz.style.background = on ? 'var(--primary-dim)' : 'transparent'; };
+          ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); highlight(true); }));
+          ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); highlight(false); }));
+          dz.addEventListener('drop', e => {
+            const files = Array.from(e.dataTransfer.files || []);
+            if (!files.length) return App.toast('没有识别到文件，请重试', 'warn');
+            uploadFiles(o, files, () => { App.closeDrawer(); openDrawer(id); });
+          });
+        }
         const edit = box.querySelector('#dEdit');
         if (edit) edit.addEventListener('click', () => editOrderModal(o, () => { App.closeDrawer(); render(); }));
         const del = box.querySelector('#dDel');
@@ -253,17 +268,24 @@
     });
   }
 
-  /* 上传附件（支持多选；任意常见格式：word/pdf/excel/图片/cad/压缩包等） */
-  function uploadFiles(o, done) {
-    const inp = document.createElement('input');
-    inp.type = 'file';
-    inp.multiple = true;
-    inp.onchange = async () => {
-      const files = Array.from(inp.files || []);
-      if (!files.length) return;
-      App.toast('正在上传 ' + files.length + ' 个文件…', 'info');
-      let okCount = 0, failMsg = '';
-      for (const f of files) {
+  /* 上传附件：files 为 FileList/数组（拖拽或选择均可），任意常见格式 */
+  function uploadFiles(o, files, done) {
+    /* 兼容按钮点击（第二参数为回调）：弹出文件选择框 */
+    if (typeof files === 'function') { done = files; files = null; }
+    if (!files) {
+      const inp = document.createElement('input');
+      inp.type = 'file';
+      inp.multiple = true;
+      inp.onchange = () => { if (inp.files && inp.files.length) uploadFiles(o, Array.from(inp.files), done); };
+      inp.click();
+      return;
+    }
+    const list = Array.from(files || []);
+    if (!list.length) return;
+    App.toast('正在上传 ' + list.length + ' 个文件…', 'info');
+    let okCount = 0, failMsg = '';
+    setTimeout(async () => {
+      for (const f of list) {
         if (f.size > 50 * 1024 * 1024) { failMsg = '「' + f.name + '」超过 50MB，已跳过'; continue; }
         const r = await App.dbUpload(o.id, f);
         if (r.ok) {
@@ -277,8 +299,7 @@
       if (failMsg) App.toast(failMsg, okCount ? 'warn' : 'danger');
       App.toast(okCount ? '上传完成（' + okCount + ' 个文件）' : '没有文件上传成功', okCount ? 'success' : 'danger');
       if (done) done();
-    };
-    inp.click();
+    }, 50);
   }
 
   /* ---------- 推进（含定金校验 + 老板强制） ---------- */
