@@ -718,3 +718,7 @@ html[data-theme="light"] .att-page { box-shadow: 0 2px 8px rgba(15, 23, 42, .18)
 .import-total { display: flex; align-items: center; gap: 9px; padding: 10px 16px; margin-bottom: 16px; font-size: 13px; color: var(--accent); background: var(--warning-bg); border: 1px solid rgba(255, 184, 77, .3); border-radius: var(--radius-md); }
 .import-total svg { width: 16px; height: 16px; flex: none; }
 .import-row .icon svg { width: 14px; height: 14px; }
+
+/* ---------- 报价导入拖放区 ---------- */
+.q-drop { border: 2px dashed var(--border-strong); border-radius: 8px; padding: 10px; text-align: center; font-size: 12px; color: var(--ink-faint); margin-top: 8px; transition: all .15s; cursor: pointer; }
+.q-drop.on { border-color: var(--primary); background: var(--primary-dim); color: var(--ink); }

@@ -360,7 +360,8 @@
         '<button class="btn btn-sm" id="qImport"><span data-icon="file-spreadsheet"></span>导入 Excel 表格</button>' +
         '<button class="btn btn-sm" id="qTpl1"><span data-icon="download"></span>旋转钢梯模板</button>' +
         '<button class="btn btn-sm" id="qTpl2"><span data-icon="download"></span>拉弯模板</button>' +
-        '<span class="sub-line" id="qImportMsg">先下载模板→按格式填写→再导入，系统自动识别（图片识别开发中）</span></div>' +
+        '<span class="sub-line" id="qImportMsg">先下载模板→按格式填写→再导入；支持把 Excel/CSV 从微信直接拖到下方虚线框</span></div>' +
+        '<div id="qDrop" class="q-drop">将 Excel / CSV 文件拖到此处上传（支持从微信 / QQ 直接拖入）</div>' +
         '<div id="qHead" style="margin-bottom:4px">' +
         '<div class="row-actions" style="flex-wrap:wrap">' +
         '<div style="flex:1.2;min-width:150px;font-size:11.5px;color:var(--ink-faint)">① 产品名称（可输入或下拉选择）</div>' +
@@ -378,13 +379,10 @@
         if (preCid) { const sel = box.querySelector('#qCust'); if (sel) sel.value = preCid; }
         const rowsEl = box.querySelector('#qRows');
         const totalEl = box.querySelector('#qTotal');
-        const imp = box.querySelector('#qImport');
-        if (imp) imp.addEventListener('click', () => {
-          const inp = document.createElement('input');
-          inp.type = 'file'; inp.accept = '.xlsx,.xls,.csv';
-          inp.onchange = async () => {
-            const f = inp.files && inp.files[0];
-            if (!f) return;
+        async function doImportFile(f) {
+          if (!f) return;
+          if (!/\.(xlsx|xls|csv)$/i.test(f.name)) { App.toast('请拖入或选择 Excel / CSV 文件（不支持「' + f.name + '」）', 'warn'); return; }
+          {
             const msg = box.querySelector('#qImportMsg');
             msg.textContent = '正在解析「' + f.name + '」…';
             try {
@@ -415,8 +413,28 @@
               });
             } catch (err) { msg.textContent = '解析失败：' + err.message; }
           };
+        };
+        const imp = box.querySelector('#qImport');
+        if (imp) imp.addEventListener('click', () => {
+          const inp = document.createElement('input');
+          inp.type = 'file'; inp.accept = '.xlsx,.xls,.csv';
+          inp.onchange = () => { if (inp.files && inp.files[0]) doImportFile(inp.files[0]); };
           inp.click();
         });
+        /* 拖拽导入：支持从微信 / QQ / 资源管理器直接拖入 */
+        const dz = box.querySelector('#qDrop');
+        if (dz) {
+          const highlight = on => { dz.classList.toggle('on', on); };
+          ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); highlight(true); }));
+          ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); highlight(false); }));
+          dz.addEventListener('drop', e => {
+            const files = Array.from(e.dataTransfer.files || []);
+            if (!files.length) return App.toast('没有识别到文件，请重试', 'warn');
+            const ok = files.find(f => /\.(xlsx|xls|csv)$/i.test(f.name));
+            if (!ok) return App.toast('请拖入 Excel / CSV 文件', 'warn');
+            doImportFile(ok);
+          });
+        }
         const buildTpl = type => {
           try {
             let ws, name;
