@@ -1511,48 +1511,58 @@ document.addEventListener('DOMContentLoaded', _attachBootstrap);
 
 /* ============================================================
    工资核算（payroll）：财务 / 总经理专用
-   规则：日工资 = 基本工资 ÷ 21.75；迟到每次扣 50；加班费 = 时薪 × 1.5
+   应发 = 基本工资 + 加班费（25 元/小时 × 加班小时） + 奖金 − 其他扣款
+   支持系统外员工（user_id 以 ext: 开头，姓名直接存 name 字段）
+   新月份无数据时自动从最近月份结转员工与基本工资
    ============================================================ */
-const PAYROLL_RULES = { BASE_DAYS: 21.75, LATE_FINE: 50, OT_RATE: 1.5 };
+const PAYROLL_RULES = { OT_HOURLY: 25 };
 function _payrollNet(r) {
-  return Math.round(((Number(r.base_salary) || 0) - (Number(r.deduction_attend) || 0)
-    + (Number(r.overtime_pay) || 0) + (Number(r.bonus) || 0) - (Number(r.other_deduction) || 0)) * 100) / 100;
+  return Math.round(((Number(r.base_salary) || 0) + (Number(r.overtime_pay) || 0) + (Number(r.bonus) || 0) - (Number(r.other_deduction) || 0)) * 100) / 100;
 }
 
 async function fetchPayroll(month) {
   await delay(360);
-  const rows = DB.payrolls.filter(x => x.month === month);
-  return {
-    code: 0,
-    data: rows.map(r => {
-      const u = _userById(r.user_id) || {};
-      return { ...r, userName: u.name || '', position: u.position || '' };
-    }).sort((a, b) => (b.net_pay || 0) - (a.net_pay || 0)),
-  };
+  let rows = DB.payrolls.filter(x => x.month === month);
+  if (!rows.length) {
+    const prevMonths = [...new Set(DB.payrolls.map(x => x.month))].filter(m => m < month).sort().reverse();
+    if (prevMonths.length) {
+      for (const p of DB.payrolls.filter(x => x.month === prevMonths[0])) {
+        const nr = { id: _uid(), user_id: p.user_id, name: p.name, month, base_salary: p.base_salary, attend_days: 0, overtime_hours: 0, overtime_pay: 0, bonus: p.bonus || 0, other_deduction: p.other_deduction || 0, status: '草稿', note: '' };
+        nr.net_pay = _payrollNet(nr);
+        DB.payrolls.push(nr);
+        _cloudSync('payrolls', 'upsert', nr);
+      }
+      rows = DB.payrolls.filter(x => x.month === month);
+    }
+  }
+  const data = rows.map(r => {
+    const isExt = String(r.user_id || '').indexOf('ext:') === 0;
+    const u = isExt ? {} : (_userById(r.user_id) || {});
+    return { ...r, userName: r.name || u.name || '', position: u.position || '' };
+  }).sort((a, b) => (b.net_pay || 0) - (a.net_pay || 0));
+  return { code: 0, data };
 }
 
 async function savePayrollRow(payload) {
   await delay(420);
-  if (!payload.user_id) return { code: 1, msg: '请选择员工' };
+  const name = String(payload.name || '').trim();
+  let user_id = payload.user_id;
+  if (!user_id) user_id = name ? 'ext:' + name : '';
+  if (!user_id) return { code: 1, msg: '请填写员工姓名' };
   if (!payload.month) return { code: 1, msg: '缺少月份' };
   const num = x => Math.round((Number(x) || 0) * 100) / 100;
-  let r = DB.payrolls.find(x => x.user_id === payload.user_id && x.month === payload.month);
-  const isNew = !r;
-  if (!r) {
-    r = { id: _uid(), user_id: payload.user_id, month: payload.month };
-    DB.payrolls.push(r);
-  }
-  ['base_salary', 'attend_days', 'absent_days', 'overtime_hours', 'deduction_attend', 'overtime_pay', 'bonus', 'other_deduction'].forEach(k => {
+  let r = DB.payrolls.find(x => x.user_id === user_id && x.month === payload.month);
+  if (!r) { r = { id: _uid(), user_id, month: payload.month }; DB.payrolls.push(r); }
+  if (name) r.name = name;
+  ['base_salary', 'attend_days', 'overtime_hours', 'overtime_pay', 'bonus', 'other_deduction'].forEach(k => {
     if (payload[k] != null) r[k] = num(payload[k]);
   });
-  if (payload.late_count != null) r.late_count = parseInt(num(payload.late_count)) || 0;
   if (payload.status) r.status = payload.status;
   if (payload.pay_date != null) r.pay_date = payload.pay_date;
   if (payload.note != null) r.note = payload.note;
   r.net_pay = _payrollNet(r);
   _cloudSync('payrolls', 'upsert', r);
-  const u = _userById(r.user_id) || {};
-  return { code: 0, data: { ...r, userName: u.name || '', isNew } };
+  return { code: 0, data: { ...r, userName: r.name } };
 }
 
 async function importPayrollRows(items, month) {
@@ -1563,26 +1573,23 @@ async function importPayrollRows(items, month) {
     const name = String(it.name || '').trim();
     if (!name) continue;
     const u = DB.users.find(x => x.name === name && x.active !== false);
-    if (!u) { skipped.push({ name, reason: '系统中没有该员工（先到【设置】创建账号）' }); continue; }
-    let r = DB.payrolls.find(x => x.user_id === u.id && x.month === month);
+    const user_id = u ? u.id : 'ext:' + name;
+    let r = DB.payrolls.find(x => x.user_id === user_id && x.month === month);
     const isNew = !r;
-    if (!r) { r = { id: _uid(), user_id: u.id, month }; DB.payrolls.push(r); }
-    const daily = num(it.base_salary) / PAYROLL_RULES.BASE_DAYS;
-    const hourly = daily / 8;
+    if (!r) { r = { id: _uid(), user_id, month }; DB.payrolls.push(r); }
+    r.name = u ? u.name : name;
     r.base_salary = num(it.base_salary);
     r.attend_days = num(it.attend_days);
-    r.absent_days = num(it.absent_days);
-    r.late_count = parseInt(num(it.late_count)) || 0;
     r.overtime_hours = num(it.overtime_hours);
-    r.deduction_attend = Math.round((num(it.absent_days) * daily + num(it.late_count) * PAYROLL_RULES.LATE_FINE) * 100) / 100;
-    r.overtime_pay = Math.round(num(it.overtime_hours) * hourly * PAYROLL_RULES.OT_RATE * 100) / 100;
+    r.overtime_pay = Math.round(num(it.overtime_hours) * PAYROLL_RULES.OT_HOURLY * 100) / 100;
     r.bonus = num(it.bonus);
     r.other_deduction = num(it.other_deduction);
     if (it.note != null) r.note = it.note;
     if (r.status !== '已发放') r.status = '草稿';
     r.net_pay = _payrollNet(r);
     _cloudSync('payrolls', 'upsert', r);
-    (isNew ? created : updated).push(u.name);
+    (isNew ? created : updated).push(r.name);
+    if (!u) skipped.push({ name, reason: '系统外员工，已按外部人员登记' });
   }
   return { code: 0, data: { created, updated, skipped } };
 }

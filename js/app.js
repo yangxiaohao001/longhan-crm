@@ -432,6 +432,7 @@ const PERM = {
     { key: 'payments',  name: '回款' },
     { key: 'purchase',  name: '采购' },
     { key: 'finance',   name: '记账' },
+    { key: 'payroll',   name: '工资核算' },
     { key: 'reminders', name: '提醒' },
   ],
   actions: {
