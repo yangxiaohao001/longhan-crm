@@ -40,21 +40,27 @@
       (list.length ? list.map(r => {
         const m = App.remindTypeMeta[r.type] || {};
         const overdue = r.dueInDays < 0 && r.status === 'pending';
-        return '<div class="kcard" style="margin-bottom:12px;cursor:default">' +
+        const unread = r.isRead !== true;
+        return '<div class="kcard' + (unread ? ' rem-unread' : '') + '" style="margin-bottom:12px;cursor:default">' +
           '<div style="display:flex;align-items:flex-start;gap:12px">' +
           '<span class="nav-avatar" style="width:34px;height:34px"><span data-icon="' + m.icon + '"></span></span>' +
           '<div style="flex:1;min-width:0">' +
-          '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b style="font-size:13.5px">' + App.escapeHtml(r.title) + '</b>' +
+          '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+          (unread ? '<span class="unread-dot" title="未读"></span>' : '') +
+          '<b style="font-size:13.5px">' + App.escapeHtml(r.title) + '</b>' +
           '<span class="badge ' + m.cls + '">' + m.label + '</span>' +
+          (unread ? '<span class="badge badge-danger">未读</span>' : '<span class="badge">已读</span>') +
           (r.status === 'done' ? '<span class="badge badge-success">已处理</span>'
             : overdue ? '<span class="overdue-tag">' + App.relDays(r.dueInDays) + '</span>'
             : '<span class="sub-line">' + App.relDays(r.dueInDays) + '</span>') + '</div>' +
           '<div class="sub-line" style="margin-top:5px">' + App.escapeHtml(r.detail) + '</div>' +
           '<div class="sub-line">对象：' + App.escapeHtml(r.refName) + ' · 负责人：' + App.escapeHtml(r.ownerName) + ' · 到期 ' + r.dueDate + '</div>' +
           '</div>' +
-          (r.status === 'pending'
-            ? '<div class="row-actions"><button class="btn btn-sm btn-primary" data-go="' + r.id + '">去处理</button>' +
-            '<button class="btn btn-sm" data-done="' + r.id + '">标记已处理</button></div>' : '') +
+          '<div class="row-actions">' +
+          (r.status === 'pending' ? '<button class="btn btn-sm btn-primary" data-go="' + r.id + '">去处理</button>' +
+          '<button class="btn btn-sm" data-done="' + r.id + '">标记已处理</button>' : '') +
+          '<button class="btn btn-sm" data-read="' + r.id + '" data-to="' + (unread ? '1' : '0') + '">' + (unread ? '标记已读' : '标为未读') + '</button>' +
+          '</div>' +
           '</div></div>';
       }).join('')
         : '<div class="empty"><span data-icon="check-circle"></span><p>太棒了，没有待处理提醒</p></div>') +
@@ -70,6 +76,11 @@
       const r = await resolveReminder(el.dataset.done);
       if (r.code !== 0) return App.toast(r.msg, 'danger');
       App.toast('已标记处理'); renderList();
+    }));
+    root.querySelectorAll('[data-read]').forEach(el => el.addEventListener('click', async () => {
+      const r = await markReminderRead(el.dataset.read, el.dataset.to === '1');
+      if (r.code !== 0) return App.toast(r.msg, 'danger');
+      renderList();
     }));
     App.mountIcons(root);
   }

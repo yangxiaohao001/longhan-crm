@@ -9,7 +9,8 @@
   const state = { month: todayStr.slice(0, 7) };
 
   const num = x => Math.round((Number(x) || 0) * 100) / 100;
-  const calcNet = r => num((Number(r.base_salary) || 0) + (Number(r.overtime_pay) || 0) + (Number(r.bonus) || 0) - (Number(r.other_deduction) || 0));
+  /* 工资 = 基本工资 ÷ 30 × 出勤天数 + 加班费 + 奖金 − 其他扣款 */
+  const calcNet = r => num(num(Number(r.base_salary) || 0) / 30 * (Number(r.attend_days) || 0) + (Number(r.overtime_pay) || 0) + (Number(r.bonus) || 0) - (Number(r.other_deduction) || 0));
 
   function renderList() {
     const root = document.getElementById('pageRoot');
@@ -103,25 +104,25 @@
         '<div class="form-grid">' +
         '<div class="form-item"><label>员工姓名<b>*</b></label><input class="input" id="eName" list="pUserList" value="' + App.escapeHtml(r.userName || '') + '" placeholder="输入姓名（可填系统外人员）" autocomplete="off"><datalist id="pUserList">' + sysNames.map(n => '<option value="' + App.escapeHtml(n) + '">').join('') + '</datalist><p class="form-error"></p></div>' +
         '<div class="form-item"><label>基本工资（元）<b>*</b></label><input class="input num" id="eBase" type="number" min="0" step="0.01" value="' + (r.base_salary || '') + '"><p class="form-error"></p></div>' +
-        '<div class="form-item"><label>出勤天数</label><input class="input num" id="eAttend" type="number" min="0" step="0.5" value="' + (r.attend_days || 0) + '"></div>' +
+        '<div class="form-item"><label>出勤天数（基本工资按 ÷30×出勤 折算）<b>*</b></label><input class="input num" id="eAttend" type="number" min="0" step="0.5" value="' + (r.attend_days || 0) + '"></div>' +
         '<div class="form-item"><label>加班小时</label><input class="input num" id="eOt" type="number" min="0" step="0.5" value="' + (r.overtime_hours || 0) + '"></div>' +
         '<div class="form-item"><label>加班费（元，按 ' + OT_HOURLY + ' 元/小时）</label><input class="input num" id="eOtPay" type="number" min="0" step="0.01" value="' + (r.overtime_pay || 0) + '"></div>' +
         '<div class="form-item"><label>奖金 / 补贴（元）</label><input class="input num" id="eBonus" type="number" step="0.01" value="' + (r.bonus || 0) + '"></div>' +
         '<div class="form-item"><label>其他扣款（元）</label><input class="input num" id="eOther" type="number" min="0" step="0.01" value="' + (r.other_deduction || 0) + '"></div>' +
         '<div class="form-item" style="grid-column:1/-1"><label>备注</label><input class="input" id="eNote" value="' + App.escapeHtml(r.note || '') + '"></div>' +
         '</div>' +
-        '<div class="import-total" style="margin:0"><span data-icon="banknote"></span>应发工资：<b class="money success" id="eNet" style="margin-left:6px;font-size:16px">¥0</b><span class="sub-line" style="margin-left:10px">= 基本工资 + 加班费 + 奖金 − 其他扣款</span></div>',
+        '<div class="import-total" style="margin:0"><span data-icon="banknote"></span>应发工资：<b class="money success" id="eNet" style="margin-left:6px;font-size:16px">¥0</b><span class="sub-line" style="margin-left:10px">= 基本工资÷30×出勤 + 加班费 + 奖金 − 其他扣款</span></div>',
       foot: '<button class="btn" data-act="cancel">取消</button><button class="btn btn-primary" data-act="ok">保存</button>',
       onMount(box) {
         const $ = id => box.querySelector(id);
         function refresh() {
           $('#eNet').textContent = App.fmtMoney(calcNet({
-            base_salary: $('#eBase').value, overtime_pay: $('#eOtPay').value,
+            base_salary: $('#eBase').value, attend_days: $('#eAttend').value, overtime_pay: $('#eOtPay').value,
             bonus: $('#eBonus').value, other_deduction: $('#eOther').value,
           }));
         }
         $('#eOt').addEventListener('input', () => { $('#eOtPay').value = num(Number($('#eOt').value) || 0) * OT_HOURLY; refresh(); });
-        ['#eBase', '#eOtPay', '#eBonus', '#eOther'].forEach(sel => $(sel).addEventListener('input', refresh));
+        ['#eBase', '#eAttend', '#eOtPay', '#eBonus', '#eOther'].forEach(sel => $(sel).addEventListener('input', refresh));
         refresh();
         box.querySelector('[data-act="cancel"]').addEventListener('click', () => App.closeModal());
         box.querySelector('[data-act="ok"]').addEventListener('click', async e => {
@@ -132,6 +133,8 @@
           if (!name) return App.formError(nameEl, '请填写员工姓名');
           const base = Number(baseEl.value);
           if (!base || base <= 0) return App.formError(baseEl, '请填写基本工资');
+          const attendV = Number($('#eAttend').value);
+          if (!(attendV >= 0) || $('#eAttend').value === '') return App.formError($('#eAttend'), '请填写出勤天数');
           App.btnLoading(btn);
           const r = await savePayrollRow({
             user_id: isNew ? '' : r.user_id, name, month: state.month,
@@ -194,13 +197,13 @@
       for (let i = headIdx + 1; i < grid.length; i++) {
         const row = grid[i] || [];
         const name = norm(map.name != null ? row[map.name] : '');
-        if (!name || /合计|平均|汇总/.test(name)) continue;
+        if (!name || /合计|平均|汇总|^示例|^说明/.test(name)) continue;
         out.push({ name, base_salary: num(map.base != null ? row[map.base] : 0), attend_days: num(map.attend != null ? row[map.attend] : 0), overtime_hours: num(map.ot != null ? row[map.ot] : 0), bonus: num(map.bonus != null ? row[map.bonus] : 0), other_deduction: num(map.other != null ? row[map.other] : 0) });
       }
     } else {
       for (const row of grid) {
         const cells = (row || []).map(norm);
-        if (!cells[0] || /合计|说明/.test(cells[0])) continue;
+        if (!cells[0] || /合计|说明|^示例/.test(cells[0])) continue;
         out.push({ name: cells[0], base_salary: num(cells[1]), attend_days: num(cells[2]), overtime_hours: num(cells[3]), bonus: num(cells[4]), other_deduction: num(cells[5]) });
       }
     }
@@ -263,13 +266,22 @@
       const ws = XLSX.utils.aoa_to_sheet([
         ['河北龙瀚金属制品有限公司 — ' + state.month + ' 月工资导入表'],
         head,
-        ['示例：张三', 5000, 21, 4, 0, 200, '示例行，导入前请删除（加班费按 25 元/小时 自动计算）'],
-        [],
-        ['说明：姓名可填系统员工，也可填系统外人员；加班费不填则按 25 元/小时 自动计算。'],
+        [], [], [], [], [], [], [], [],
       ]);
       ws['!cols'] = [{ wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 24 }];
+      const ws2 = XLSX.utils.aoa_to_sheet([
+        ['填写说明'],
+        ['1. 请在第一个工作表「工资导入」的表头下填写员工明细，一行一个人；本说明表不用删除，导入时自动忽略。'],
+        ['2. 姓名：可填系统员工，也可填系统外人员（临时工等），系统会自动登记。'],
+        ['3. 基本工资：月基本工资（元）。出勤天数：本月实际上班天数。'],
+        ['4. 工资公式：基本工资 ÷ 30 × 出勤天数 + 加班费 + 奖金 − 其他扣款。'],
+        ['5. 加班费：不填则按 25 元/小时 × 加班小时自动计算；填了以填写值为准。'],
+        ['6. 奖金/补贴、其他扣款：没有填 0 即可。备注：选填。'],
+      ]);
+      ws2['!cols'] = [{ wch: 100 }];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, '工资导入');
+      XLSX.utils.book_append_sheet(wb, ws2, '填写说明');
       XLSX.writeFile(wb, state.month + '月工资导入模板.xlsx');
     } catch (e) { App.toast('模板生成失败：' + e.message, 'danger'); }
   }

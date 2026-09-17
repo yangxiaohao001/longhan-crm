@@ -115,7 +115,7 @@ const App = {
       return App.canRoute(n.key);
     });
     const badge = n => {
-      if (n.key === 'reminders') return '<i class="nav-badge" data-badge="reminders"></i>';
+      if (n.key === 'reminders') return '<i class="nav-badge red" data-badge="reminders"></i>';
       if (App.isBoss() && (n.key === 'quotes' || n.key === 'purchase')) return '<i class="nav-badge" data-badge="' + n.key + '"></i>';
       return '';
     };
@@ -596,7 +596,7 @@ function shellRun() {
   if (App.canRoute('reminders')) {
     fetchReminderCounts().then(res => {
       if (res.code !== 0) return;
-      document.querySelectorAll('[data-badge="reminders"]').forEach(el => _setBadge(el, res.data.total));
+      document.querySelectorAll('[data-badge="reminders"]').forEach(el => _setBadge(el, res.data.unread != null ? res.data.unread : res.data.total));
     });
   }
   if (App.isBoss()) {

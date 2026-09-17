@@ -1028,13 +1028,24 @@ async function fetchReminders(filters) {
 }
 
 // TODO: replace with fetch('GET /api/reminders/counts')
+async function markReminderRead(id, isRead) {
+  await delay(260);
+  const r = DB.reminders.find(x => x.id === id);
+  if (!r) return { code: 1, msg: '提醒不存在' };
+  r.isRead = isRead !== false;
+  try { _cloudSync('reminders', 'upsert', { id: r.id, type: r.type, ref_id: r.refId || r.ref_id || '', title: r.title, detail: r.detail, due_date: r.dueDate || r.due_date || null, owner: r.owner, status: r.status, is_read: r.isRead }); } catch (e) { /* ignore */ }
+  return { code: 0, data: r };
+}
+
 async function fetchReminderCounts() {
   await delay(200);
   const pending = DB.reminders.filter(r => r.status === 'pending');
+  const unread = pending.filter(r => r.isRead !== true).length;
   return {
     code: 0,
     data: {
       total: pending.length,
+      unread,
       follow: pending.filter(r => r.type === 'follow').length,
       payment: pending.filter(r => r.type === 'payment').length,
       quote: pending.filter(r => r.type === 'quote').length,
@@ -1547,7 +1558,9 @@ document.addEventListener('DOMContentLoaded', _attachBootstrap);
    ============================================================ */
 const PAYROLL_RULES = { OT_HOURLY: 25 };
 function _payrollNet(r) {
-  return Math.round(((Number(r.base_salary) || 0) + (Number(r.overtime_pay) || 0) + (Number(r.bonus) || 0) - (Number(r.other_deduction) || 0)) * 100) / 100;
+  /* 工资 = 基本工资 ÷ 30 × 出勤天数 + 加班费 + 奖金/补贴 − 其他扣款 */
+  const basePart = Math.round((Number(r.base_salary) || 0) / 30 * (Number(r.attend_days) || 0) * 100) / 100;
+  return Math.round((basePart + (Number(r.overtime_pay) || 0) + (Number(r.bonus) || 0) - (Number(r.other_deduction) || 0)) * 100) / 100;
 }
 
 async function fetchPayroll(month) {
@@ -1568,7 +1581,8 @@ async function fetchPayroll(month) {
   const data = rows.map(r => {
     const isExt = String(r.user_id || '').indexOf('ext:') === 0;
     const u = isExt ? {} : (_userById(r.user_id) || {});
-    return { ...r, userName: r.name || u.name || '', position: u.position || '' };
+    const nm = r.name || (isExt ? r.user_id.slice(4) : '') || u.name || '';
+    return { ...r, userName: nm, position: u.position || '' };
   }).sort((a, b) => (b.net_pay || 0) - (a.net_pay || 0));
   return { code: 0, data };
 }
@@ -1591,7 +1605,8 @@ async function savePayrollRow(payload) {
   if (payload.pay_date != null) r.pay_date = payload.pay_date;
   if (payload.note != null) r.note = payload.note;
   r.net_pay = _payrollNet(r);
-  _cloudSync('payrolls', 'upsert', r);
+  const _row = Object.assign({}, r); delete _row.name; delete _row.userName; delete _row.position;
+  _cloudSync('payrolls', 'upsert', _row);
   return { code: 0, data: { ...r, userName: r.name } };
 }
 
@@ -1602,6 +1617,8 @@ async function importPayrollRows(items, month) {
   for (const it of items || []) {
     const name = String(it.name || '').trim();
     if (!name) continue;
+    /* 兜底：模板的示例/说明行不入库（页面解析层已过滤，这里防其他路径） */
+    if (/^示例|^说明|合计|平均|汇总/.test(name)) continue;
     const u = DB.users.find(x => x.name === name && x.active !== false);
     const user_id = u ? u.id : 'ext:' + name;
     let r = DB.payrolls.find(x => x.user_id === user_id && x.month === month);
@@ -1617,7 +1634,8 @@ async function importPayrollRows(items, month) {
     if (it.note != null) r.note = it.note;
     if (r.status !== '已发放') r.status = '草稿';
     r.net_pay = _payrollNet(r);
-    _cloudSync('payrolls', 'upsert', r);
+    const _row = Object.assign({}, r); delete _row.name; delete _row.userName; delete _row.position;
+    _cloudSync('payrolls', 'upsert', _row);
     (isNew ? created : updated).push(r.name);
     if (!u) skipped.push({ name, reason: '系统外员工，已按外部人员登记' });
   }

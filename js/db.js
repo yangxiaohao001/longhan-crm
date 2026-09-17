@@ -74,10 +74,11 @@ async function dbInit() {
       c.from('suppliers').select('*'),
       c.from('users').select('*'),
       c.from('products').select('*'),
+      c.from('payroll').select('*'),
       c.from('settings').select('*').maybeSingle(),
       c.from('meta').select('*').maybeSingle(),
     ]);
-    const TBL = ['customers', 'quotes', 'orders', 'payments', 'followups', 'reminders', 'purchases', 'manual_ledgers', 'suppliers', 'users', 'products'];
+    const TBL = ['customers', 'quotes', 'orders', 'payments', 'followups', 'reminders', 'purchases', 'manual_ledgers', 'suppliers', 'users', 'products', 'payroll'];
     for (let i = 0; i < res.length; i++) {
       const r = res[i];
       if (r.error) {
@@ -100,8 +101,9 @@ async function dbInit() {
       DB.suppliers = M(res[8].data);
       DB.users = M(res[9].data);
       DB.products = M(res[10].data);
-      if (res[11].data) DB.settings = _fromRow(res[11].data);
-      if (res[12].data) DB.meta = _fromRow(res[12].data);
+      DB.payrolls = M(res[11].data);
+      if (res[12].data) DB.settings = _fromRow(res[12].data);
+      if (res[13].data) DB.meta = _fromRow(res[13].data);
     }
     _cacheInited = true;
     return { ok: true, mode: 'cloud' };
