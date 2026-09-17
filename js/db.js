@@ -44,6 +44,7 @@ const TABLES = {
   products: 'products',
   settings: 'settings',
   meta: 'meta',
+  payrolls: 'payroll',
 };
 
 /* 启动时从云拉所有表填到 window.DB；返回是否成功（云模式失败时返回 false） */

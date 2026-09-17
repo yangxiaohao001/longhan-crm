@@ -202,3 +202,26 @@ INSERT INTO products (id, name, spec, unit, price) VALUES
   ('p007', '中厚板', '10mm Q345B', '吨', 3850),
   ('p008', '金属波纹管', 'DN200 补偿器', '个', 320)
   ON CONFLICT (id) DO NOTHING;
+
+
+-- 16. 工资核算（每人每月一条）
+CREATE TABLE IF NOT EXISTS payroll (
+  id text PRIMARY KEY,
+  user_id text NOT NULL,
+  month text NOT NULL,
+  base_salary numeric DEFAULT 0,
+  attend_days numeric DEFAULT 0,
+  absent_days numeric DEFAULT 0,
+  late_count int DEFAULT 0,
+  overtime_hours numeric DEFAULT 0,
+  deduction_attend numeric DEFAULT 0,
+  overtime_pay numeric DEFAULT 0,
+  bonus numeric DEFAULT 0,
+  other_deduction numeric DEFAULT 0,
+  net_pay numeric DEFAULT 0,
+  status text DEFAULT '草稿',
+  pay_date date,
+  note text
+);
+CREATE UNIQUE INDEX IF NOT EXISTS payroll_user_month ON payroll(user_id, month);
+ALTER TABLE payroll DISABLE ROW LEVEL SECURITY;

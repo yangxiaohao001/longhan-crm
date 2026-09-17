@@ -50,6 +50,8 @@ const DB = {
 
   purchases: [],
   manualLedgers: [],
+
+  payrolls: [],   /* 工资核算（每人每月一条） */
 };
 
 /* 把"今天"作为新数据的默认值（运行时取真实当前日期） */

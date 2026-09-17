@@ -18,6 +18,7 @@ const PERM = {
     { key: 'purchase',  name: '采购' },
     { key: 'finance',   name: '记账' },
     { key: 'reminders', name: '提醒' },
+    { key: 'payroll',   name: '工资核算' },
   ],
   actions: {
     'quote.approve':      ['总经理'],
@@ -30,6 +31,7 @@ const PERM = {
     'purchase.approve':   ['总经理'],
     'purchase.pay':       ['总经理', '财务'],
     'ledger.edit':        ['总经理', '财务'],
+    'payroll.edit':       ['总经理', '财务'],
     'settings.edit':      ['总经理'],
   },
 };
@@ -40,6 +42,7 @@ function attachPerm() {
   App.canRoute = function (route) {
     const s = u(); if (!s || s.active === false) return false;
     if (s.position === '总经理') return true;
+    if (route === 'payroll' && s.position === '财务') return true;  /* 工资核算：财务按岗位放行 */
     return (s.scopes || []).includes(route);
   };
   App.can = function (action) {

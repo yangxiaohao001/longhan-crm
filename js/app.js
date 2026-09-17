@@ -100,6 +100,7 @@ const App = {
     { key: 'payments',  file: 'payments.html',  icon: 'wallet',           label: '回款' },
     { key: 'purchase',  file: 'purchase.html',  icon: 'truck',            label: '采购' },
     { key: 'finance',   file: 'finance.html',   icon: 'bar-chart',        label: '记账' },
+    { key: 'payroll',   file: 'payroll.html',   icon: 'banknote',         label: '工资核算' },
     { key: 'reminders', file: 'reminders.html', icon: 'bell',             label: '提醒' },
     { key: 'help',      file: 'help.html',      icon: 'help-circle',      label: '帮助' },
     { key: 'settings',  file: 'settings.html',  icon: 'settings',         label: '设置' },
