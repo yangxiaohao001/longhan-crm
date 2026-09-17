@@ -63,7 +63,19 @@
     const res = await login(userVal, pwd);
     App.btnDone(document.getElementById('loginBtn'));
     if (res.code !== 0) { fail(res.msg); return; }
-    location.replace('index.html');
+    /* 落到第一个有权限的页面（没有 dashboard 权限就不落首页，避免空白被困） */
+    let dest = 'index.html';
+    try {
+      const sess = JSON.parse(localStorage.getItem('lh-crm-session') || '{}');
+      if (sess.position !== '总经理') {
+        const order = [['dashboard', 'index.html'], ['customers', 'customers.html'], ['quotes', 'quotes.html'],
+          ['orders', 'orders.html'], ['payments', 'payments.html'], ['finance', 'finance.html'],
+          ['purchase', 'purchase.html'], ['reminders', 'reminders.html']];
+        const hit = order.find(([k]) => (sess.scopes || []).includes(k));
+        if (hit) dest = hit[1];
+      }
+    } catch (e) { /* ignore */ }
+    location.replace(dest);
   }
 
   document.addEventListener('DOMContentLoaded', async () => {

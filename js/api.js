@@ -1064,6 +1064,9 @@ const DEFAULT_SCOPES = ['dashboard', 'customers', 'quotes', 'orders', 'payments'
 function userScopes(u) {
   if (!u) return [];
   if (u.position === '总经理') return ['*'];
+  /* 总经理在设置里配置的「岗位权限」优先于单个账号的 scopes */
+  const ov = DB.settings && DB.settings.positionScopes ? DB.settings.positionScopes[u.position] : null;
+  if (Array.isArray(ov) && ov.length) return ov.slice();
   return (Array.isArray(u.scopes) && u.scopes.length) ? u.scopes : DEFAULT_SCOPES;
 }
 async function login(userId, pwd) {
@@ -1152,7 +1155,34 @@ async function saveSettings(patch) {
   if (patch.followupGrant != null && Array.isArray(patch.followupGrant)) {
     DB.settings.followupGrant = patch.followupGrant.filter(id => _userById(id));
   }
+  if (patch.positionScopes != null && typeof patch.positionScopes === 'object') {
+    const KEYS = ['dashboard', 'customers', 'quotes', 'orders', 'payments', 'purchase', 'finance', 'reminders', 'payroll'];
+    const clean = {};
+    Object.keys(patch.positionScopes).forEach(pos => {
+      if (!Array.isArray(patch.positionScopes[pos])) return;
+      clean[pos] = patch.positionScopes[pos].filter(k => KEYS.includes(k));
+    });
+    DB.settings.positionScopes = clean;
+  }
+  /* settings 单行同步云端（position_scopes 列需已执行 ALTER SQL；未执行时同步失败静默，不影响本地） */
+  try { _cloudSync('settings', 'upsert', { id: 1, depositPct: DB.settings.depositPct, positionScopes: DB.settings.positionScopes }); } catch (e) { /* ignore */ }
   return { code: 0, data: { ...DB.settings } };
+}
+
+/* 待审批汇总（总经理首页徽标/提醒用） */
+async function fetchPendingApprovals() {
+  await delay(200);
+  return {
+    code: 0,
+    data: {
+      quotes: DB.quotes.filter(q => q.status === '待审批').map(q => ({
+        id: q.id, no: q.no, owner: (_userById(q.owner) || {}).name || '', createdAt: q.createdAt || q.created_at || '',
+      })),
+      purchases: DB.purchases.filter(x => x.status === '待审批').map(x => ({
+        id: x.id, no: x.no, title: x.title, requester: (_userById(x.requester) || {}).name || '', createdAt: x.createdAt || x.created_at || '',
+      })),
+    },
+  };
 }
 
 /* ============================================================

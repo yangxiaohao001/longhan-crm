@@ -743,3 +743,31 @@ html[data-theme="light"] .att-page { box-shadow: 0 2px 8px rgba(15, 23, 42, .18)
   #printArea .pr-sign { display: flex; justify-content: space-between; margin-top: 28px; font-size: 12.5px; }
   @page { margin: 15mm 13mm; }
 }
+
+/* ---------- 移动端专项优化（≤860px，桌面不受影响） ---------- */
+@media (max-width: 860px) {
+  /* 卡头纵向排布：筛选 chips 一行横滚，工具条换行 */
+  .card-head { flex-wrap: wrap; }
+  .card-head .chip-row {
+    order: -1; flex-basis: 100%;
+    flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px; scrollbar-width: none;
+  }
+  .card-head .chip-row::-webkit-scrollbar { display: none; }
+  .chip-row .chip { flex: 0 0 auto; white-space: nowrap; padding: 7px 14px; }
+  .card-tools { margin-left: 0; width: 100%; flex-wrap: wrap; }
+  .card-tools .search-box { flex: 1 1 180px; }
+  .card-tools .search-box .input { width: auto !important; flex: 1 1 auto; min-width: 0; }
+  .card-tools .select { flex: 0 0 auto; }
+
+  /* 底导航待审批徽标 */
+  .bn-item { position: relative; }
+  .bn-badge {
+    position: absolute; top: 4px; right: 16%;
+    min-width: 15px; height: 15px; padding: 0 4px;
+    display: inline-grid; place-items: center;
+    font-size: 10px; font-style: normal; font-family: var(--font-mono);
+    color: #041310; background: var(--primary); border-radius: 8px;
+    box-shadow: 0 0 8px rgba(0, 229, 195, .5);
+  }
+}

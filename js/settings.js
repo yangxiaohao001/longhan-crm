@@ -114,12 +114,31 @@
       '<p class="form-hint" style="margin-top:8px">未配置时所有数据保存在浏览器本地（localStorage）；配置后自动切换到云端，跨设备共享。</p>' +
       '</div></div>';
 
+    /* 角色权限配置（总经理：按岗位勾选可见模块，存云端全设备生效） */
+    const psCfg = DB.settings.positionScopes || {};
+    const FALLBACK = ['dashboard', 'customers', 'quotes', 'orders', 'payments', 'purchase', 'reminders'];
+    const permRows = positions.filter(pp => pp !== '总经理').map(pp => {
+      const cur = psCfg[pp] || ((DB.users.find(u => u.position === pp && Array.isArray(u.scopes) && u.scopes.length) || {}).scopes) || FALLBACK;
+      return '<div class="perm-row" data-pos="' + pp + '" style="padding:10px 0;border-bottom:1px dashed var(--border)">' +
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px"><b style="font-size:13.5px">' + pp + '</b>' +
+        '<label style="margin-left:auto;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" class="perm-all"> 全选</label></div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:6px 14px">' + modules.map(m =>
+          '<label style="font-size:12.5px;cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" class="perm-chk" value="' + m.key + '"' + (cur.includes(m.key) ? ' checked' : '') + '> ' + m.name + '</label>').join('') +
+        '</div></div>';
+    }).join('');
+    const permCard = '<div class="card" style="margin-bottom:16px"><div class="card-head"><div class="card-title">角色权限配置</div>' +
+      '<span class="card-sub">按岗位分配可见模块，保存后该岗位账号重新登录生效</span></div>' +
+      '<div class="card-body">' + permRows +
+      '<div style="margin-top:12px;text-align:right"><button class="btn btn-primary btn-sm" id="savePerm"><span data-icon="save"></span>保存权限配置</button></div>' +
+      '</div></div>';
+
     root.innerHTML =
       '<div class="grid" style="grid-template-columns:1.5fr 1fr;align-items:flex-start">' +
       '<div>' +
       '<div class="card" style="margin-bottom:16px"><div class="card-head"><div class="card-title">账号管理</div><span class="card-sub">' + DB.users.length + ' 个账号</span>' +
       '<div class="card-tools"><button class="btn btn-primary btn-sm" id="addUser"><span data-icon="user-plus"></span>新增账号</button></div></div>' +
       '<div class="card-body">' + userCards + '</div></div>' +
+      permCard +
       prodCard +
       rules +
       '</div><div>' +
@@ -131,6 +150,27 @@
       '</div></div>';
 
     /* 账号卡按钮 */
+    /* 权限配置交互 */
+    root.querySelectorAll('.perm-row').forEach(row => {
+      const all = row.querySelector('.perm-all');
+      const syncAll = () => { all.checked = [...row.querySelectorAll('.perm-chk')].every(c => c.checked); };
+      syncAll();
+      all.addEventListener('change', () => row.querySelectorAll('.perm-chk').forEach(c => { c.checked = all.checked; }));
+      row.querySelectorAll('.perm-chk').forEach(c => c.addEventListener('change', syncAll));
+    });
+    const spBtn = root.querySelector('#savePerm');
+    if (spBtn) spBtn.addEventListener('click', async () => {
+      const map = {};
+      root.querySelectorAll('.perm-row').forEach(row => {
+        map[row.dataset.pos] = [...row.querySelectorAll('.perm-chk:checked')].map(c => c.value);
+      });
+      App.btnLoading(spBtn);
+      const r = await saveSettings({ positionScopes: map });
+      App.btnDone(spBtn);
+      if (r.code !== 0) return App.toast(r.msg, 'danger');
+      App.toast('权限配置已保存，该岗位账号重新登录后生效');
+    });
+
     root.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => editUserModal(b.dataset.edit)));
     root.querySelectorAll('[data-pwd]').forEach(b => b.addEventListener('click', () => pwdResetModal(b.dataset.pwd)));
     root.querySelectorAll('[data-toggle]').forEach(b => b.addEventListener('click', () => {
@@ -256,7 +296,7 @@
 
   /* ----- 账号编辑（新增/修改） ----- */
   function editUserModal(id) {
-    const u = id ? _u(id) : { id: _uid(), name: '', userName: '', phone: '', position: '业务员', pwd: '123456', initial: '新', scopes: ['customers', 'quotes', 'orders', 'payments', 'purchase', 'reminders'], active: true };
+    const u = id ? _u(id) : { id: _uid(), name: '', userName: '', phone: '', position: '业务员', pwd: '123456', initial: '新', scopes: ['dashboard', 'customers', 'quotes', 'orders', 'payments', 'purchase', 'reminders'], active: true };
     const isNew = !id;
     const positions = App.positions();
     const modules = App.modules();

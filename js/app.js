@@ -115,8 +115,8 @@ const App = {
       return App.canRoute(n.key);
     });
     const badge = n => {
-      if (n.key === 'reminders') return '<i class="nav-badge" id="navRemindBadge"></i>';
-      if (n.key === 'quotes' && App.isBoss()) return '<i class="nav-badge" id="navApprovalBadge"></i>';
+      if (n.key === 'reminders') return '<i class="nav-badge" data-badge="reminders"></i>';
+      if (App.isBoss() && (n.key === 'quotes' || n.key === 'purchase')) return '<i class="nav-badge" data-badge="' + n.key + '"></i>';
       return '';
     };
     const link = n =>
@@ -143,7 +143,9 @@ const App = {
     if (bn) {
       bn.innerHTML = items.filter(n => n.key !== 'help' && n.key !== 'settings').slice(0, 5).map(n =>
         '<a class="bn-item' + (n.key === page ? ' active' : '') + '" href="' + n.file + '">' +
-        '<span data-icon="' + n.icon + '"></span><i>' + n.label + '</i></a>').join('');
+        '<span data-icon="' + n.icon + '"></span><i>' + n.label + '</i>' +
+        ((App.isBoss() && (n.key === 'quotes' || n.key === 'purchase')) ? '<b class="bn-badge" data-badge="' + n.key + '"></b>' : '') +
+        '</a>').join('');
     }
   },
 
@@ -466,6 +468,16 @@ App.seeAll = function () {
   if (s.position === '总经理' || s.position === '财务') return true;
   return s.position === '跟单' || s.position === '内勤';
 };
+/* 跟单授权：总经理/全局视角恒有；普通业务员看 settings.followupGrant 名单（此前缺失导致业务员客户页/订单页崩溃） */
+App.hasFollowup = function () {
+  const s = App.session();
+  if (!s) return false;
+  if (App.isBoss() || App.seeAll()) return true;
+  try {
+    const g = (typeof DB !== 'undefined' && DB.settings && DB.settings.followupGrant) || [];
+    return g.includes(s.userId);
+  } catch (e) { return false; }
+};
 App.modules = function () { return PERM.modules.slice(); };
 App.positions = function () { return ['总经理', '业务员', '财务', '内勤', '跟单', '车间']; };
 
@@ -481,6 +493,11 @@ function shellInit() {
       || (pageKey === 'settings' && s.position === '总经理')
       || (typeof App.canRoute === 'function' && App.canRoute(pageKey));
     if (!ok) {
+      /* 无 dashboard 权限时自动跳到第一个有权限的页面（否则登录后一片空白） */
+      if (pageKey === 'dashboard') {
+        const first = App.NAV.find(n => n.key !== 'help' && n.key !== 'settings' && App.canRoute(n.key));
+        if (first) { location.replace(first.file); return; }
+      }
       const page = document.querySelector('.page');
       if (page) {
         page.dataset.blocked = '1';
@@ -493,6 +510,8 @@ function shellInit() {
         }
       });
       if (page) block.observe(page, { childList: true, characterData: true, subtree: true });
+      /* 关键：被拦截也要渲染导航/顶栏/退出按钮，否则用户被困死在空白页 */
+      shellRun();
       return;
     }
   }
@@ -577,14 +596,24 @@ function shellRun() {
   if (App.canRoute('reminders')) {
     fetchReminderCounts().then(res => {
       if (res.code !== 0) return;
-      _setBadge(document.getElementById('navRemindBadge'), res.data.total);
+      document.querySelectorAll('[data-badge="reminders"]').forEach(el => _setBadge(el, res.data.total));
     });
   }
   if (App.isBoss()) {
-    fetchQuotes({ status: '待审批' }).then(res => {
+    fetchPendingApprovals().then(res => {
       if (res.code !== 0) return;
-      _setBadge(document.getElementById('navApprovalBadge'), res.data.length);
-    });
+      const qn = res.data.quotes.length, pn = res.data.purchases.length;
+      document.querySelectorAll('[data-badge="quotes"]').forEach(el => _setBadge(el, qn));
+      document.querySelectorAll('[data-badge="purchase"]').forEach(el => _setBadge(el, pn));
+      const total = qn + pn;
+      if (total > 0) {
+        const tk = 'lh-approval-toast-' + new Date().toDateString();
+        if (!sessionStorage.getItem(tk)) {
+          try { sessionStorage.setItem(tk, '1'); } catch (e) {}
+          App.toast('您有 ' + (qn ? qn + ' 笔报价' : '') + (qn && pn ? '、' : '') + (pn ? pn + ' 笔采购' : '') + '待审批', 'warn');
+        }
+      }
+    }).catch(() => {});
   }
 
   // 5. Esc 关闭浮层
