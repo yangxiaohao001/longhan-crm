@@ -15,8 +15,44 @@
     { key: 'quote', label: '报价到期' },
     { key: 'alert', label: '异常预警' },
   ];
+  if (App.isBoss()) TYPES.splice(1, 0, { key: 'boss', label: '总经理待办' });
+
+  /* 总经理待办：动态聚合（不落库，处理完自动消失）——待审批报价 / 待审批采购 / 待发放工资 */
+  function bossItems() {
+    if (!App.isBoss()) return [];
+    const out = [];
+    const uname = id => ((DB.users || []).find(u => u.id === id) || {}).name || '';
+    (DB.quotes || []).filter(q => q.status === '待审批').forEach(q => {
+      const c = (DB.customers || []).find(x => x.id === (q.customerId || q.customer_id));
+      out.push({
+        id: 'sys-quote-' + q.id, type: 'boss', _sys: true, _jump: 'quotes.html',
+        title: '报价待审批：' + (q.no || ''), status: 'pending', isRead: true,
+        detail: '客户：' + (c ? c.name : '—') + ' · 业务员：' + uname(q.owner || q.owner_id),
+        refName: '', ownerName: '', dueDate: '', dueInDays: 0,
+      });
+    });
+    (DB.purchases || []).filter(x => x.status === '待审批').forEach(x => {
+      out.push({
+        id: 'sys-pur-' + x.id, type: 'boss', _sys: true, _jump: 'purchase.html',
+        title: '采购待审批：' + (x.title || x.no || ''), status: 'pending', isRead: true,
+        detail: '申请人：' + uname(x.requester || x.requester_id) + ' · 金额：¥' + ((x.items || []).reduce((s2, i2) => s2 + (Number(i2.qty) || 0) * (Number(i2.price) || 0), 0)).toFixed(2),
+        refName: '', ownerName: '', dueDate: '', dueInDays: 0,
+      });
+    });
+    const drafts = (DB.payrolls || []).filter(x => x.status === '草稿');
+    if (drafts.length) {
+      out.push({
+        id: 'sys-payroll', type: 'boss', _sys: true, _jump: 'payroll.html',
+        title: '工资待发放', status: 'pending', isRead: true,
+        detail: '有 ' + drafts.length + ' 条工资记录未标记发放（含 ' + [...new Set(drafts.map(x2 => x2.month))].join('、') + '）',
+        refName: '', ownerName: '', dueDate: '', dueInDays: 0,
+      });
+    }
+    return out;
+  }
 
   function jumpTarget(r) {
+    if (r.type === 'boss') return r._jump || 'index.html';
     if (r.type === 'quote') return 'quotes.html';
     if (r.type === 'payment') return 'orders.html?oid=' + r.refId;
     if (r.type === 'follow') return 'customers.html?cid=' + r.refId;
@@ -30,7 +66,7 @@
     if (!App.seeAll()) filters.owner = sess.userId;
     const res = await fetchReminders(filters);
     if (res.code !== 0) { root.innerHTML = '<div class="empty"><p>' + App.escapeHtml(res.msg) + '</p></div>'; return; }
-    const list = res.data;
+    const list = res.data.concat((state.type === 'boss' || state.type === '全部') ? bossItems() : []);
 
     root.innerHTML =
       '<div class="card"><div class="card-head">' +
@@ -58,8 +94,8 @@
           '</div>' +
           '<div class="row-actions">' +
           (r.status === 'pending' ? '<button class="btn btn-sm btn-primary" data-go="' + r.id + '">去处理</button>' +
-          '<button class="btn btn-sm" data-done="' + r.id + '">标记已处理</button>' : '') +
-          '<button class="btn btn-sm" data-read="' + r.id + '" data-to="' + (unread ? '1' : '0') + '">' + (unread ? '标记已读' : '标为未读') + '</button>' +
+          (!r._sys ? '<button class="btn btn-sm" data-done="' + r.id + '">标记已处理</button>' : '') : '') +
+          (!r._sys ? '<button class="btn btn-sm" data-read="' + r.id + '" data-to="' + (unread ? '1' : '0') + '">' + (unread ? '标记已读' : '标为未读') + '</button>' : '') +
           '</div>' +
           '</div></div>';
       }).join('')

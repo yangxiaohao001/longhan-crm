@@ -12,6 +12,19 @@
   /* 工资 = 基本工资 ÷ 30 × 出勤天数 + 加班费 + 奖金 − 其他扣款 */
   const calcNet = r => num(num(Number(r.base_salary) || 0) / 30 * (Number(r.attend_days) || 0) + (Number(r.overtime_pay) || 0) + (Number(r.bonus) || 0) - (Number(r.other_deduction) || 0));
 
+  /* 月份状态点：该月有工资数据且全部已发放 → green；有数据含草稿 → yellow；无数据 → 无点 */
+  function monthStatus(m) {
+    try {
+      const rows = (DB.payrolls || []).filter(x => x.month === m);
+      if (!rows.length) return '';
+      return rows.every(r => r.status === '已发放') ? 'green' : 'yellow';
+    } catch (e) { return ''; }
+  }
+  document.addEventListener('click', () => {
+    const mc = document.getElementById('monthCal');
+    if (mc) mc.style.display = 'none';
+  });
+
   function renderList() {
     const root = document.getElementById('pageRoot');
     if (!(App.isBoss() || sess.position === '财务')) {
@@ -32,7 +45,10 @@
         '</div>' +
 
         '<div class="card"><div class="card-head">' +
-        '<div class="chip-row"><select class="select" id="monthSel" style="width:130px">' + monthOptions() + '</select></div>' +
+        '<div class="chip-row" style="position:relative">' +
+        '<button class="btn btn-sm" id="monthBtn" style="gap:7px"><span data-icon="calendar"></span><b id="monthBtnTxt">' + state.month + '</b><i class="mc-dot ' + (monthStatus(state.month) ? 'mc-' + monthStatus(state.month) : 'mc-none') + '"></i></button>' +
+        '<div id="monthCal" class="month-cal" style="display:none"></div>' +
+        '</div>' +
         '<div class="card-tools">' +
         '<button class="btn btn-sm" id="pTpl"><span data-icon="download"></span>下载导入模板</button>' +
         '<button class="btn btn-sm" id="pExport"><span data-icon="download"></span>导出本月工资表</button>' +
@@ -65,7 +81,41 @@
           : '<tr><td colspan="10"><div class="empty"><span data-icon="inbox"></span><p>本月还没有工资数据——点「新增员工工资」逐个录入，或「导入考勤工资 Excel」批量导入；切换到新月份时会自动带上员工名单</p></div></td></tr>') +
         '</tbody></table></div></div>';
 
-      root.querySelector('#monthSel').addEventListener('change', e => { state.month = e.target.value; renderList(); });
+      /* 月份日历面板 */
+      const mBtn = root.querySelector('#monthBtn'), mCal = root.querySelector('#monthCal');
+      let calYear = Number(state.month.slice(0, 4));
+      const renderCal = () => {
+        const cells = [];
+        for (let i = 1; i <= 12; i++) {
+          const m = calYear + '-' + String(i).padStart(2, '0');
+          const st = monthStatus(m);
+          cells.push('<button class="mc-cell' + (m === state.month ? ' active' : '') + '" data-m="' + m + '">' + i + '月' +
+            (st ? '<i class="mc-dot mc-' + st + '"></i>' : '') + '</button>');
+        }
+        mCal.innerHTML =
+          '<div class="month-cal-head"><button class="btn btn-sm" id="calPrev"><span data-icon="chevron-left"></span></button>' +
+          '<b style="font-size:13.5px">' + calYear + ' 年</b>' +
+          '<button class="btn btn-sm" id="calNext"><span data-icon="chevron-right"></span></button></div>' +
+          '<div class="month-cal-grid">' + cells.join('') + '</div>' +
+          '<div class="month-cal-legend"><span><i class="mc-dot mc-green"></i>已发放</span><span><i class="mc-dot mc-yellow"></i>有数据未发放</span><span>无点 = 无数据</span></div>';
+        mCal.querySelector('#calPrev').addEventListener('click', () => { calYear--; renderCal(); });
+        mCal.querySelector('#calNext').addEventListener('click', () => { calYear++; renderCal(); });
+        mCal.querySelectorAll('.mc-cell').forEach(c => c.addEventListener('click', () => {
+          state.month = c.dataset.m;
+          mCal.style.display = 'none';
+          root.querySelector('#monthBtnTxt').textContent = state.month;
+          renderList();
+        }));
+        App.mountIcons(mCal);
+      };
+      mBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        if (mCal.style.display !== 'none') { mCal.style.display = 'none'; return; }
+        calYear = Number(state.month.slice(0, 4));
+        renderCal();
+        mCal.style.display = 'block';
+      });
+      mCal.addEventListener('click', e => e.stopPropagation());
       root.querySelector('#pAdd').addEventListener('click', () => editModal(null));
       root.querySelector('#pImport').addEventListener('click', () => pickImport());
       root.querySelector('#pTpl').addEventListener('click', downloadTpl);

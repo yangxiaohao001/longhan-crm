@@ -575,6 +575,7 @@ function shellRun() {
   /* 4.5 拉云端数据（如已配 Supabase）—— 等数据拉完 + 子页面渲染完，再 reload 让 UI 用云端数据 */
   if (App.bootstrapFromCloud) {
     App.bootstrapFromCloud().then(r => {
+      applyBadges();   /* 云端数据到位后重算徽标（此前徽标永远在数据拉取前计算，恒为空） */
       if (r && r.ok && r.mode === 'cloud') {
         const ts = parseInt(sessionStorage.getItem('lh-crm-cloud-init') || '0', 10);
         if (!ts) {
@@ -593,10 +594,19 @@ function shellRun() {
     b.textContent = want;
     b.style.display = n > 0 ? '' : 'none';
   }
+  const applyBadges = () => {
   if (App.canRoute('reminders')) {
-    fetchReminderCounts().then(res => {
-      if (res.code !== 0) return;
-      document.querySelectorAll('[data-badge="reminders"]').forEach(el => _setBadge(el, res.data.unread != null ? res.data.unread : res.data.total));
+    const badgeReq = App.isBoss()
+      ? Promise.all([fetchReminderCounts(), fetchPendingApprovals().catch(() => null)])
+      : fetchReminderCounts().then(r => [r, null]);
+    badgeReq.then(([res, ap]) => {
+      if (!res || res.code !== 0) return;
+      let n = res.data.unread != null ? res.data.unread : res.data.total;
+      if (App.isBoss() && ap && ap.code === 0) {
+        n += ap.data.quotes.length + ap.data.purchases.length;
+        try { n += (DB.payrolls || []).filter(x => x.status === '草稿').length; } catch (e) { /* ignore */ }
+      }
+      document.querySelectorAll('[data-badge="reminders"]').forEach(el => _setBadge(el, n));
     });
   }
   if (App.isBoss()) {
@@ -615,6 +625,8 @@ function shellRun() {
       }
     }).catch(() => {});
   }
+  };
+  applyBadges();
 
   // 5. Esc 关闭浮层
   document.addEventListener('keydown', e => {

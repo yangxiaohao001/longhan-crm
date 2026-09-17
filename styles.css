@@ -779,3 +779,27 @@ html[data-theme="light"] .att-page { box-shadow: 0 2px 8px rgba(15, 23, 42, .18)
 .nav-badge.red { background: #e5484d; color: #fff; box-shadow: 0 0 10px rgba(229, 72, 77, .5); }
 .bn-badge.red { background: #e5484d; color: #fff; box-shadow: 0 0 8px rgba(229, 72, 77, .5); }
 html[data-theme="light"] .nav-badge.red { background: #dc2626; }
+
+/* ---------- 工资月份日历面板 ---------- */
+.month-cal {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 70;
+  width: 300px; padding: 12px;
+  background: var(--surface-solid); border: 1px solid var(--border-strong);
+  border-radius: 12px; box-shadow: 0 14px 38px rgba(0, 0, 0, .32);
+}
+.month-cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.month-cal-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.mc-cell {
+  position: relative; padding: 9px 0; text-align: center;
+  font-size: 12.5px; font-family: var(--font-mono); color: var(--ink);
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.mc-cell:hover { border-color: rgba(120, 150, 190, .45); }
+.mc-cell.active { color: var(--primary); border-color: rgba(0, 229, 195, .5); background: var(--primary-dim); }
+.mc-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 4px; vertical-align: 1px; }
+.mc-green { background: #22c55e; box-shadow: 0 0 5px rgba(34, 197, 94, .55); }
+.mc-yellow { background: #eab308; box-shadow: 0 0 5px rgba(234, 179, 8, .55); }
+.mc-none { background: transparent; }
+.month-cal-legend { display: flex; gap: 14px; margin-top: 10px; font-size: 11.5px; color: var(--ink-faint); align-items: center; }
+html[data-theme="light"] .month-cal { box-shadow: 0 14px 34px rgba(15, 23, 42, .18); }
