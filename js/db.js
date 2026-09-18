@@ -209,12 +209,6 @@ async function backupToCloud() {
   const name = 'backup/crm-' + dump.created_at.replace(/[:T]/g, '-').slice(0, 19) + '.json';
   const { error } = await c.storage.from('attachments').upload(name, JSON.stringify(dump), { contentType: 'application/json', upsert: false });
   if (error) return { ok: false, msg: error.message };
-  /* 保留最近 30 份，旧的自动清理 */
-  try {
-    const list = await c.storage.from('attachments').list('backup', { sortBy: { column: 'created_at', order: 'desc' } });
-    const old = (list.data || []).filter(f => f.name.endsWith('.json')).slice(30);
-    if (old.length) await c.storage.from('attachments').remove(old.map(f => 'backup/' + f.name));
-  } catch (e) { /* 清理失败不影响备份结果 */ }
   return { ok: true, file: name, name, tableCount, rowCount };
 }
 

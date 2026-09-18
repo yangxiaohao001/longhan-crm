@@ -119,7 +119,7 @@
     const FALLBACK = ['dashboard', 'customers', 'quotes', 'orders', 'payments', 'purchase', 'reminders'];
     /* 云端备份卡 */
     const bkCard = '<div class="card" style="margin-bottom:16px"><div class="card-head"><div class="card-title">云端数据备份</div>' +
-      '<span class="card-sub">每天首次打开系统自动备份 · 保留最近 30 份</span></div>' +
+      '<span class="card-sub">每天首次打开系统自动备份 · 永久保留（每天一份，可存 10 年以上）</span></div>' +
       '<div class="card-body">' +
       '<div style="text-align:right;margin-bottom:10px"><button class="btn btn-primary btn-sm" id="bkNow"><span data-icon="cloud-upload"></span>立即备份</button></div>' +
       '<div id="bkList"><div class="sub-line">加载中…</div></div>' +
