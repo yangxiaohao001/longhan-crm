@@ -6,7 +6,7 @@
   const OT_HOURLY = 25;
   const STATUS_META = { '草稿': 'badge-warn', '已发放': 'badge-success' };
   const todayStr = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })();
-  const state = { month: todayStr.slice(0, 7) };
+  const state = { month: todayStr.slice(0, 7), quarter: Math.floor(new Date().getMonth() / 3) + 1 };
 
   const num = x => Math.round((Number(x) || 0) * 100) / 100;
   /* 工资 = 基本工资 ÷ 30 × 出勤天数 + 加班费 + 奖金 − 其他扣款 */
@@ -37,11 +37,31 @@
       const totalNet = rows.reduce((s, r) => s + (Number(r.net_pay) || 0), 0);
       const paidNet = rows.filter(r => r.status === '已发放').reduce((s, r) => s + (Number(r.net_pay) || 0), 0);
 
+      /* 季度 / 年度已发放总额（跨月聚合，取自全量工资表） */
+      const unpaidNet = num(totalNet - paidNet);
+      const year = state.month.slice(0, 4);
+      const allRows = DB.payrolls || [];
+      const paidSum = pred => num(allRows.filter(r => r.status === '已发放' && pred(r.month || '')).reduce((s2, r) => s2 + (Number(r.net_pay) || 0), 0));
+      const qMonths = [1, 2, 3].map(i => year + '-' + String((state.quarter - 1) * 3 + i).padStart(2, '0'));
+      const qPaid = paidSum(m => qMonths.includes(m));
+      const yPaid = paidSum(m => m.slice(0, 4) === year);
+
       root.innerHTML =
-        '<div class="grid grid-kpi" style="margin-bottom:16px">' +
+        '<div class="grid grid-4" style="margin-bottom:12px">' +
         '<div class="kpi"><div class="kpi-label"><span data-icon="banknote"></span>本月应发合计</div><div class="kpi-value" data-count="' + Math.round(totalNet) + '">—</div></div>' +
-        '<div class="kpi"><div class="kpi-label"><span data-icon="wallet"></span>已发放</div><div class="kpi-value success" data-count="' + Math.round(paidNet) + '">—</div></div>' +
-        '<div class="kpi"><div class="kpi-label"><span data-icon="users"></span>人数</div><div class="kpi-value" data-count="' + rows.length + '" data-int="1">—</div></div>' +
+        '<div class="kpi"><div class="kpi-label"><span data-icon="wallet"></span>本月已发放</div><div class="kpi-value success" data-count="' + Math.round(paidNet) + '">—</div></div>' +
+        '<div class="kpi"><div class="kpi-label"><span data-icon="clock"></span>本月未发放</div><div class="kpi-value" style="color:#eab308" data-count="' + Math.round(unpaidNet) + '">—</div></div>' +
+        '<div class="kpi"><div class="kpi-label"><span data-icon="users"></span>本月人数</div><div class="kpi-value" data-count="' + rows.length + '" data-int="1">—</div></div>' +
+        '</div>' +
+        '<div class="grid grid-2" style="margin-bottom:16px">' +
+        '<div class="kpi"><div class="kpi-label"><span data-icon="calendar"></span>季度已发放工资' +
+        '<select class="select" id="qSel" style="margin-left:auto;width:104px;padding:2px 6px;font-size:12px">' +
+        [1, 2, 3, 4].map(q => '<option value="' + q + '"' + (q === state.quarter ? ' selected' : '') + '>第 ' + q + ' 季度</option>').join('') + '</select></div>' +
+        '<div class="kpi-value success" data-count="' + Math.round(qPaid) + '">—</div>' +
+        '<div class="sub-line" style="margin-top:4px">' + year + ' 年第 ' + state.quarter + ' 季度（' + qMonths[0] + ' ~ ' + qMonths[2] + '）</div></div>' +
+        '<div class="kpi"><div class="kpi-label"><span data-icon="award"></span>年度发放工资总额</div>' +
+        '<div class="kpi-value success" data-count="' + Math.round(yPaid) + '">—</div>' +
+        '<div class="sub-line" style="margin-top:4px">' + year + ' 年全年已发放合计</div></div>' +
         '</div>' +
 
         '<div class="card"><div class="card-head">' +
@@ -116,6 +136,8 @@
         mCal.style.display = 'block';
       });
       mCal.addEventListener('click', e => e.stopPropagation());
+      const qSel = root.querySelector('#qSel');
+      if (qSel) qSel.addEventListener('change', e => { state.quarter = Number(e.target.value); renderList(); });
       root.querySelector('#pAdd').addEventListener('click', () => editModal(null));
       root.querySelector('#pImport').addEventListener('click', () => pickImport());
       root.querySelector('#pTpl').addEventListener('click', downloadTpl);
@@ -128,7 +150,7 @@
       })));
       bindDrop(root.querySelector('#pDrop'));
       App.mountIcons(root);
-      root.querySelectorAll('.kpi-value[data-count]').forEach(el => App.countUp(el, Number(el.dataset.count)));
+      root.querySelectorAll('.kpi-value[data-count]').forEach(el => App.countUp(el, Number(el.dataset.count), el.dataset.int ? (v => String(Math.round(v))) : null));
     });
   }
 
