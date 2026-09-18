@@ -582,6 +582,16 @@ function shellRun() {
           sessionStorage.setItem('lh-crm-cloud-init', '1');
           /* 给子页面 IIFE 充足的时间画完（customers / orders 等都是先 await fetch 后渲染） */
           setTimeout(() => location.reload(), 3000);
+        } else {
+          /* 每日云端备份：每天第一次打开系统自动执行（存 Supabase Storage，保留 30 份） */
+          try {
+            const today = new Date().toDateString();
+            if (localStorage.getItem('lh-crm-last-backup') !== today && typeof App.backupToCloud === 'function') {
+              App.backupToCloud().then(b => {
+                try { if (b.ok) localStorage.setItem('lh-crm-last-backup', today); } catch (e) {}
+              }).catch(() => {});
+            }
+          } catch (e) { /* ignore */ }
         }
       }
     });

@@ -117,6 +117,15 @@
     /* 角色权限配置（总经理：按岗位勾选可见模块，存云端全设备生效） */
     const psCfg = DB.settings.positionScopes || {};
     const FALLBACK = ['dashboard', 'customers', 'quotes', 'orders', 'payments', 'purchase', 'reminders'];
+    /* 云端备份卡 */
+    const bkCard = '<div class="card" style="margin-bottom:16px"><div class="card-head"><div class="card-title">云端数据备份</div>' +
+      '<span class="card-sub">每天首次打开系统自动备份 · 保留最近 30 份</span></div>' +
+      '<div class="card-body">' +
+      '<div style="text-align:right;margin-bottom:10px"><button class="btn btn-primary btn-sm" id="bkNow"><span data-icon="cloud-upload"></span>立即备份</button></div>' +
+      '<div id="bkList"><div class="sub-line">加载中…</div></div>' +
+      '<p class="form-hint" style="margin-top:10px">恢复会用所选备份<b>覆盖</b>当前云端全部数据，操作前请先点「立即备份」留存现状。</p>' +
+      '</div></div>';
+
     const permRows = positions.filter(pp => pp !== '总经理').map(pp => {
       const cur = psCfg[pp] || ((DB.users.find(u => u.position === pp && Array.isArray(u.scopes) && u.scopes.length) || {}).scopes) || FALLBACK;
       return '<div class="perm-row" data-pos="' + pp + '" style="padding:10px 0;border-bottom:1px dashed var(--border)">' +
@@ -143,6 +152,7 @@
       rules +
       '</div><div>' +
       cloud +
+      bkCard +
       '<div class="card"><div class="card-head"><div class="card-title">公司</div></div><div class="card-body">' +
       '<div class="form-hint">' + App.escapeHtml(DB.meta.company) + '</div>' +
       '<div class="form-hint" style="margin-top:6px">演示基准日：' + DB.meta.today + '</div>' +
@@ -150,6 +160,52 @@
       '</div></div>';
 
     /* 账号卡按钮 */
+    /* 云端备份交互 */
+    const bkList = root.querySelector('#bkList');
+    function renderBkList() {
+      if (!bkList || !App.listCloudBackups) return;
+      App.listCloudBackups().then(r => {
+        if (!r.ok) { bkList.innerHTML = '<div class="sub-line">备份列表加载失败：' + App.escapeHtml(r.msg) + '</div>'; return; }
+        if (!r.items.length) { bkList.innerHTML = '<div class="sub-line">还没有备份，点上方「立即备份」创建第一份</div>'; return; }
+        bkList.innerHTML = r.items.slice(0, 8).map(b =>
+          '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed var(--border)">' +
+          '<span class="sub-line" style="flex:1;min-width:0">' + App.escapeHtml(b.file.replace('.json', '')) + ' · ' + Math.max(1, Math.round((b.size || 0) / 1024)) + ' KB</span>' +
+          '<a class="btn btn-sm" href="' + App.escapeHtml(App.backupPublicUrl(b.name)) + '" target="_blank" rel="noopener">下载</a>' +
+          '<button class="btn btn-sm btn-danger" data-bkrestore="' + App.escapeHtml(b.name) + '">恢复</button></div>').join('');
+        bkList.querySelectorAll('[data-bkrestore]').forEach(btn => btn.addEventListener('click', () => {
+          const name = btn.dataset.bkrestore;
+          App.confirm({
+            title: '恢复备份（覆盖当前数据）',
+            html: '将用 <b>' + App.escapeHtml(name) + '</b> 覆盖当前云端<b>全部数据</b>。<br><span style="color:#eab308">备份之后录入的新数据会丢失，此操作不可撤销。</span>',
+            okText: '继续', danger: true,
+            onOk: () => App.confirm({
+              title: '再次确认',
+              html: '确定要覆盖当前全部数据吗？',
+              okText: '确认恢复', danger: true,
+              onOk: async () => {
+                App.toast('正在恢复…', 'info');
+                const r2 = await App.restoreFromCloudBackup(name);
+                if (!r2.ok) return App.toast('恢复失败：' + r2.msg, 'danger');
+                App.toast('恢复完成，即将刷新');
+                setTimeout(() => location.reload(), 1200);
+              },
+            }),
+          });
+        }));
+      });
+    }
+    renderBkList();
+    const bkNow = root.querySelector('#bkNow');
+    if (bkNow) bkNow.addEventListener('click', async () => {
+      if (!App.backupToCloud) return App.toast('本地模式不支持云端备份', 'danger');
+      App.btnLoading(bkNow);
+      const r = await App.backupToCloud();
+      App.btnDone(bkNow);
+      if (!r.ok) return App.toast('备份失败：' + r.msg, 'danger');
+      App.toast('备份完成：' + r.tableCount + ' 张表 / ' + r.rowCount + ' 行');
+      renderBkList();
+    });
+
     /* 权限配置交互 */
     root.querySelectorAll('.perm-row').forEach(row => {
       const all = row.querySelector('.perm-all');

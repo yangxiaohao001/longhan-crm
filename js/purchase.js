@@ -356,6 +356,12 @@
       w();
     });
     await renderList();
+    /* URL 直达采购单详情 */
+    const pid = new URLSearchParams(location.search).get('pid');
+    if (pid) {
+      try { history.replaceState(null, '', 'purchase.html'); } catch (e) {}
+      openDrawer(pid);
+    }
   });
 })();
 

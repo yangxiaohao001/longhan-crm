@@ -91,7 +91,7 @@
         '<tr><td>' + l.date + '</td>' +
         '<td>' + (l.type === '收入' ? '<span class="badge badge-success">收入</span>' : '<span class="badge badge-warn">支出</span>') + '</td>' +
         '<td>' + l.category + '</td>' +
-        '<td class="row-link">' + (l.refNo || '—') + '</td>' +
+        '<td class="row-link" data-ref="' + App.escapeHtml(l.refNo || '') + '">' + (l.refNo || '—') + '</td>' +
         '<td>' + App.escapeHtml(l.customerName || '') + '<span class="sub-line">' + App.escapeHtml(l.note || '') + '</span></td>' +
         '<td class="money ' + (l.type === '收入' ? 'success' : 'danger') + '">' + (l.type === '收入' ? '+' : '−') + App.fmtMoney(l.amount) + '</td>' +
         '<td>' + App.escapeHtml((App.userById(l.recorder) || {}).name || '') + '</td>' +
@@ -102,6 +102,17 @@
         : '<tr><td colspan="8"><div class="empty"><span data-icon="inbox"></span><p>暂无流水</p></div></td></tr>') +
       '</tbody></table></div></div>';
 
+    /* 关联单号点击跳转：SO→订单详情 / PO→采购单详情 / PAY→工资核算 */
+    root.querySelectorAll('td[data-ref]').forEach(td => td.addEventListener('click', () => {
+      const ref = td.dataset.ref;
+      if (!ref) return;
+      const o = (DB.orders || []).find(x => x.no === ref);
+      if (o) { location.href = 'orders.html?oid=' + o.id; return; }
+      const p = (DB.purchases || []).find(x => x.no === ref);
+      if (p) { location.href = 'purchase.html?pid=' + p.id; return; }
+      if (ref.indexOf('PAY-') === 0) { location.href = 'payroll.html'; return; }
+      App.toast('未找到与「' + ref + '」关联的单据', 'warn');
+    }));
     root.querySelectorAll('.kpi-value[data-count]').forEach(el => App.countUp(el, Number(el.dataset.count)));
     root.querySelector('#mSel').addEventListener('change', e => { state.month = e.target.value; renderList(); });
     root.querySelector('#tSel').addEventListener('change', e => { state.type = e.target.value; renderList(); });

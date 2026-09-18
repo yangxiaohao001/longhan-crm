@@ -190,6 +190,81 @@ async function dbRemoveFile(file) {
   return { ok: true };
 }
 
+/* ============================================================
+   云端每日备份（存 Supabase Storage 的 attachments/backup/ 下，保留最近 30 份）
+   ============================================================ */
+const _BACKUP_TABLES = ['customers', 'quotes', 'orders', 'payments', 'followups', 'reminders',
+  'purchases', 'manual_ledgers', 'suppliers', 'users', 'products', 'payroll', 'settings', 'meta'];
+
+async function backupToCloud() {
+  const c = _getSupa();
+  if (!c) return { ok: false, msg: '未配置云端' };
+  const dump = { created_at: new Date().toISOString(), app: 'longhan-crm', tables: {} };
+  for (const t of _BACKUP_TABLES) {
+    const r = await c.from(t).select('*');
+    dump.tables[t] = r.error ? [] : (r.data || []);
+  }
+  const tableCount = Object.keys(dump.tables).filter(k => (dump.tables[k] || []).length).length;
+  const rowCount = Object.keys(dump.tables).reduce((s, k) => s + (dump.tables[k] || []).length, 0);
+  const name = 'backup/crm-' + dump.created_at.replace(/[:T]/g, '-').slice(0, 19) + '.json';
+  const { error } = await c.storage.from('attachments').upload(name, JSON.stringify(dump), { contentType: 'application/json', upsert: false });
+  if (error) return { ok: false, msg: error.message };
+  /* 保留最近 30 份，旧的自动清理 */
+  try {
+    const list = await c.storage.from('attachments').list('backup', { sortBy: { column: 'created_at', order: 'desc' } });
+    const old = (list.data || []).filter(f => f.name.endsWith('.json')).slice(30);
+    if (old.length) await c.storage.from('attachments').remove(old.map(f => 'backup/' + f.name));
+  } catch (e) { /* 清理失败不影响备份结果 */ }
+  return { ok: true, file: name, name, tableCount, rowCount };
+}
+
+async function listCloudBackups() {
+  const c = _getSupa();
+  if (!c) return { ok: false, msg: '未配置云端' };
+  const list = await c.storage.from('attachments').list('backup', { sortBy: { column: 'created_at', order: 'desc' } });
+  if (list.error) return { ok: false, msg: list.error.message };
+  return {
+    ok: true,
+    items: (list.data || []).filter(f => f.name.endsWith('.json')).map(f => ({
+      name: 'backup/' + f.name, file: f.name,
+      created: f.created_at, size: f.metadata ? f.metadata.size : 0,
+    })),
+  };
+}
+
+function backupPublicUrl(name) {
+  const c = _getSupa();
+  return c ? c.storage.from('attachments').getPublicUrl(name).data.publicUrl : '#';
+}
+
+/* 恢复：用备份整包覆盖云端（先删除备份中没有的行，再 upsert 备份行） */
+async function restoreFromCloudBackup(name) {
+  const c = _getSupa();
+  if (!c) return { ok: false, msg: '未配置云端' };
+  const url = c.storage.from('attachments').getPublicUrl(name).data.publicUrl;
+  const res = await fetch(url);
+  if (!res.ok) return { ok: false, msg: '备份文件下载失败（HTTP ' + res.status + '）' };
+  const dump = await res.json();
+  const tables = dump.tables || {};
+  const done = [];
+  for (const t of Object.keys(tables)) {
+    const rows = tables[t] || [];
+    const ids = rows.map(r => r.id).filter(x => x != null);
+    const cur = await c.from(t).select('id');
+    if (!cur.error) {
+      const gone = (cur.data || []).map(r => r.id).filter(id => !ids.includes(id));
+      for (let i = 0; i < gone.length; i += 50) {
+        await c.from(t).delete().in('id', gone.slice(i, i + 50));
+      }
+    }
+    for (let i = 0; i < rows.length; i += 100) {
+      await c.from(t).upsert(rows.slice(i, i + 100));
+    }
+    done.push(t + '(' + rows.length + ')');
+  }
+  return { ok: true, detail: done.join('、') };
+}
+
 /* App 挂载：db.js 在 app.js 之前加载，所以轮询等待 + 强兜底轮询 */
 function _attach() {
   if (typeof App === 'undefined' || !App) return false;
@@ -200,6 +275,10 @@ function _attach() {
   App.dbList = dbList;
   App.dbUpload = dbUpload;
   App.dbRemove = dbRemoveFile;
+  App.backupToCloud = backupToCloud;
+  App.listCloudBackups = listCloudBackups;
+  App.backupPublicUrl = backupPublicUrl;
+  App.restoreFromCloudBackup = restoreFromCloudBackup;
   App.getCfg = () => ({ ...DB_CFG });
   App.saveCfg = (patch) => { Object.assign(DB_CFG, patch); _saveCfg(); _supa = null; };
   App.testCloud = async () => {
