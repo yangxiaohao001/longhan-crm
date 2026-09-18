@@ -53,6 +53,8 @@
 
     const curM = f.month;
     const isCur = curM === (DB.today || curM).slice(0, 7);
+    /* 统计月份选项：全部有流水的月份 + 当前月（不受 12 个月限制）；支出构成下拉仍用近 12 月 */
+    const finMonths = [...new Set(months.concat([curM]))].sort().reverse();
     const mL = isCur ? '本月' : f.month;
     const yoyFoot = (v, goodUp) => {
       if (v == null) return '<div class="kpi-foot"><span class="kpi-delta">去年同期无数据</span></div>';
@@ -63,7 +65,7 @@
     root.innerHTML =
       '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">' +
       '<span class="sub-line">统计月份</span>' +
-      '<select class="select" id="finMSel" style="width:130px">' + f.catMonths.map(m => '<option value="' + m + '"' + (m === curM ? ' selected' : '') + '>' + (isCur && m === curM ? '本月 ' + m.slice(5) : m) + '</option>').join('') + '</select>' +
+      '<select class="select" id="finMSel" style="width:130px">' + finMonths.map(m => '<option value="' + m + '"' + (m === curM ? ' selected' : '') + '>' + (isCur && m === curM ? '本月 ' + m.slice(5) : m) + '</option>').join('') + '</select>' +
       '<span class="sub-line" style="margin-left:auto">切换月份后，本页所有数据随之更新</span>' +
       '</div>' +
       '<div class="grid grid-kpi" style="margin-bottom:12px">' +
