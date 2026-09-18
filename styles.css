@@ -817,3 +817,15 @@ html[data-theme="light"] .month-cal { box-shadow: 0 14px 34px rgba(15, 23, 42, .
   .month-cal-grid { grid-template-columns: repeat(4, 1fr); gap: 8px; }
   .mc-cell { padding: 11px 0; }
 }
+
+/* ---------- 收支趋势簇状柱形图 ---------- */
+.tc-chart { display: flex; align-items: flex-end; gap: 8px; height: 185px; padding-top: 4px; }
+.tc-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; min-width: 0; }
+.tc-vals { display: flex; gap: 6px; font-size: 10.5px; font-family: var(--font-mono); color: var(--ink-sub); margin-bottom: 4px; white-space: nowrap; }
+.tc-vals i { font-style: normal; }
+.tc-bars { display: flex; align-items: flex-end; gap: 3px; height: 120px; }
+.tc-bar { width: 13px; border-radius: 4px 4px 0 0; min-height: 2px; }
+.tc-m { font-size: 11.5px; color: var(--ink-faint); margin-top: 6px; font-family: var(--font-mono); }
+.tc-legend { display: flex; gap: 14px; justify-content: flex-end; margin-bottom: 10px; font-size: 12px; color: var(--ink-sub); }
+.tc-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px; vertical-align: -1px; }
+@media (max-width: 860px) { .tc-chart { gap: 4px; } .tc-bar { width: 9px; } .tc-vals { gap: 3px; font-size: 9.5px; } }

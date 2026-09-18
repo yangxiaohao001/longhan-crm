@@ -1433,6 +1433,23 @@ async function fetchFinanceSummary() {
   DB.manualLedgers.filter(l => _monthOf(l.date) === month)
     .forEach(l => { catMap[l.category] = (catMap[l.category] || 0) + l.amount; });
 
+  /* 逐月支出构成（近 12 个月，含空月，供「支出构成」按月查看） */
+  const catByMonth = {};
+  const _touchCat = (m, cat, amt) => {
+    catByMonth[m] = catByMonth[m] || {};
+    catByMonth[m][cat || '其他'] = (catByMonth[m][cat || '其他'] || 0) + amt;
+  };
+  DB.purchases.filter(p => p.payDate).forEach(p => _touchCat(_monthOf(p.payDate), '采购', _purchaseTotal(p)));
+  DB.manualLedgers.forEach(l => _touchCat(_monthOf(l.date), l.category, l.amount));
+  {
+    const d = new Date();
+    for (let i = 0; i < 12; i++) {
+      const m = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+      catByMonth[m] = catByMonth[m] || {};
+      d.setMonth(d.getMonth() - 1);
+    }
+  }
+
   /* 工资口径：已发放（工资流水，已计入支出）/ 应发放（草稿合计，未计入） */
   const salaryPaid = DB.manualLedgers.filter(l => l.category === '工资' && _monthOf(l.date) === month).reduce((s, l) => s + l.amount, 0);
   const salaryPending = (DB.payrolls || []).filter(x => x.month === month && x.status !== '已删除' && x.status !== '已发放').reduce((s, x) => s + (Number(x.net_pay) || 0), 0);
@@ -1451,6 +1468,8 @@ async function fetchFinanceSummary() {
       trend,
       payables,
       expenseCats: Object.keys(catMap).map(k => ({ name: k, value: catMap[k] })).sort((a, b) => b.value - a.value),
+      catByMonth,
+      catMonths: Object.keys(catByMonth).sort().reverse(),
     },
   };
 }

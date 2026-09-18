@@ -8,7 +8,7 @@
 (function () {
   const root = document.getElementById('pageRoot');
   const sess = App.session();
-  const state = { month: '', type: '全部', category: '全部' };
+  const state = { month: '', type: '全部', category: '全部', catMonth: '' };
 
   const CATS = ['采购', '钢材', '辅料', '运费', '工资', '维修', '水电', '其他'];
 
@@ -25,16 +25,20 @@
     if (state.category !== '全部') rows = rows.filter(l => l.category === state.category);
     const canEdit = App.can('ledger.edit');
 
-    /* 收支趋势双柱图 */
+    /* 收支趋势：簇状柱形图（每月收入/支出两柱并排） */
     const maxV = Math.max.apply(null, f.trend.map(t => Math.max(t.income, t.expense))) || 1;
-    const bars = f.trend.map(t => {
-      const hi = Math.round(t.income / maxV * 100), he = Math.round(t.expense / maxV * 100);
-      return '<div class="prod-row"><div class="prod-top"><b>' + t.m.slice(5) + '月</b>' +
-        '<span><i class="money" style="color:var(--chart-1);font-style:normal">收 ' + App.fmtWan(t.income) + '</i>' +
-        ' · <i class="money" style="color:var(--chart-3);font-style:normal">支 ' + App.fmtWan(t.expense) + '</i></span></div>' +
-        '<div style="display:flex;gap:4px"><div class="progress" style="flex:1"><i style="width:' + hi + '%"></i></div>' +
-        '<div class="progress" style="flex:1"><i class="warn" style="width:' + he + '%"></i></div></div></div>';
-    }).join('');
+    const barH = v => Math.max(v > 0 ? 4 : 2, Math.round(v / maxV * 112));
+    const fmtK = v => v >= 10000 ? (v / 10000).toFixed(1).replace(/\.0$/, '') + '万' : String(Math.round(v));
+    const bars = f.trend.map(t =>
+      '<div class="tc-col">' +
+      '<div class="tc-vals"><i style="color:var(--chart-1)">' + fmtK(t.income) + '</i><i style="color:var(--chart-3)">' + fmtK(t.expense) + '</i></div>' +
+      '<div class="tc-bars" title="' + t.m + '  收入 ' + App.fmtMoney(t.income) + ' / 支出 ' + App.fmtMoney(t.expense) + '">' +
+      '<div class="tc-bar" style="height:' + barH(t.income) + 'px;background:var(--chart-1)"></div>' +
+      '<div class="tc-bar" style="height:' + barH(t.expense) + 'px;background:var(--chart-3)"></div></div>' +
+      '<div class="tc-m">' + t.m.slice(5) + '月</div></div>').join('');
+
+    if (!state.catMonth) state.catMonth = f.month;
+    const catRows = Object.keys(f.catByMonth[state.catMonth] || {}).map(k => ({ name: k, value: f.catByMonth[state.catMonth][k] })).sort((x, y) => y.value - x.value);
 
     root.innerHTML =
       '<div class="grid grid-kpi" style="margin-bottom:16px">' +
@@ -49,13 +53,18 @@
       '</div>' +
 
       '<div class="grid grid-2" style="margin-bottom:16px">' +
-      '<div class="card"><div class="card-head"><div class="card-title">收支趋势</div><div class="card-sub">近 6 个月 · 左收右支</div></div><div class="card-body">' + bars + '</div></div>' +
-      '<div class="card"><div class="card-head"><div class="card-title">本月支出构成</div></div><div class="card-body">' +
-      (f.expenseCats.length ? f.expenseCats.map(c => {
-        const total = f.expenseCats.reduce((s, x) => s + x.value, 0) || 1;
-        return '<div class="prod-row"><div class="prod-top"><b>' + c.name + '</b><span class="money">' + App.fmtMoney(c.value) + '</span></div>' +
+      '<div class="card"><div class="card-head"><div class="card-title">收支趋势</div><div class="card-sub">近 6 个月 · 柱上为金额</div></div><div class="card-body">' +
+      '<div class="tc-legend"><span><i style="background:var(--chart-1)"></i>收入（回款）</span><span><i style="background:var(--chart-3)"></i>支出</span></div>' +
+      '<div class="tc-chart">' + bars + '</div></div></div>' +
+      '<div class="card"><div class="card-head"><div class="card-title">支出构成</div>' +
+      '<div class="card-tools"><select class="select" id="catMSel" style="width:120px">' +
+      f.catMonths.map(m => '<option value="' + m + '"' + (m === state.catMonth ? ' selected' : '') + '>' + (m === f.month ? '本月 ' + m.slice(5) : m) + '</option>').join('') +
+      '</select></div></div><div class="card-body">' +
+      (catRows.length ? catRows.map(c => {
+        const total = catRows.reduce((s, x) => s + x.value, 0) || 1;
+        return '<div class="prod-row"><div class="prod-top"><b>' + App.escapeHtml(c.name) + '</b><span class="money">' + App.fmtMoney(c.value) + '</span></div>' +
           '<div class="progress"><i class="warn" style="width:' + Math.round(c.value / total * 100) + '%"></i></div></div>';
-      }).join('') : '<div class="empty"><span data-icon="bar-chart"></span><p>本月暂无支出</p></div>') +
+      }).join('') : '<div class="empty"><span data-icon="bar-chart"></span><p>' + (state.catMonth === f.month ? '本月' : state.catMonth) + '暂无支出</p></div>') +
       '</div></div>' +
       '</div>' +
 
@@ -95,6 +104,8 @@
     root.querySelector('#mSel').addEventListener('change', e => { state.month = e.target.value; renderList(); });
     root.querySelector('#tSel').addEventListener('change', e => { state.type = e.target.value; renderList(); });
     root.querySelector('#cSel').addEventListener('change', e => { state.category = e.target.value; renderList(); });
+    const catMSel = root.querySelector('#catMSel');
+    if (catMSel) catMSel.addEventListener('change', e => { state.catMonth = e.target.value; renderList(); });
     const add = root.querySelector('#addLed');
     if (add) add.addEventListener('click', () => addLedModal(null));
     root.querySelectorAll('[data-ledit]').forEach(b => b.addEventListener('click', () => {
