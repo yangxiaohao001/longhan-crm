@@ -421,6 +421,8 @@
   /* ---------- 新建报价（产品行编辑） ---------- */
   function addModal(preCid) {
     const products = DB.products;
+    /* 报价有效期默认 1 个月，可编辑 */
+    const dv = (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })();
     let rows = [{ pid: products[0].id, name: products[0].name, spec: products[0].spec, qty: 1, price: products[0].price, unit: products[0].unit }];
     let importedFiles = [];   /* 本次弹窗内导入过的源文件（上传 Promise），保存时全部写入备注标记 */
     let firstImportDone = false;
@@ -429,11 +431,12 @@
       wide: true,
       html:
         '<div class="form-grid">' +
-        '<div class="form-item"><label>客户<b>*</b></label><select class="select" id="qCust">' +
-        '<option value="">请选择</option>' +
+        '<div class="form-item"><label>客户<b>*</b>（输入筛选，也可直接创建）</label><input class="input" id="qCust" list="qCustList" placeholder="输入关键词筛选；输入新名称保存时自动建档" autocomplete="off">' +
+        '<datalist id="qCustList">' +
         DB.customers.filter(c => c.stage !== '已流失' && (App.seeAll() || c.owner === sess.userId))
-          .map(c => '<option value="' + c.id + '">' + App.escapeHtml(c.name) + '</option>').join('') +
-        '</select><p class="form-error"></p></div>' +
+          .map(c => '<option value="' + App.escapeHtml(c.name) + '">').join('') +
+        '</datalist><p class="form-error"></p></div>' +
+        '<div class="form-item"><label>报价有效期至（默认 1 个月，可改）</label><input class="input" id="qValid" type="date" value="' + dv + '"></div>' +
         '<div class="form-item"><label>备注</label><input class="input" id="qNote" placeholder="选填"></div>' +
         '</div>' +
         '<div class="field"><label>产品明细<b>*</b></label>' +
@@ -457,7 +460,7 @@
         '<div class="import-total" style="margin:0"><span data-icon="coins"></span>报价总金额（客户看到的总价）：<b class="money" id="qTotal" style="margin-left:6px;font-size:16px">¥0</b></div>',
       foot: '<button class="btn" data-act="cancel">取消</button><button class="btn btn-primary" data-act="ok">保存草稿</button>',
       onMount(box) {
-        if (preCid) { const sel = box.querySelector('#qCust'); if (sel) sel.value = preCid; }
+        if (preCid) { const inp = box.querySelector('#qCust'); const pc = DB.customers.find(x => x.id === preCid); if (inp && pc) inp.value = pc.name; }
         const rowsEl = box.querySelector('#qRows');
         const totalEl = box.querySelector('#qTotal');
         async function doImportFile(f) {
@@ -487,7 +490,7 @@
               renderRows(); calc();
               if (res.custName) {
                 const c = DB.customers.find(x => x.name === res.custName);
-                if (c) { box.querySelector('#qCust').value = c.id; msg.textContent = '已识别客户「' + c.name + '」，并导入 ' + res.rows.length + ' 行明细，请核对金额'; }
+                if (c) { box.querySelector('#qCust').value = c.name; msg.textContent = '已识别客户「' + c.name + '」，并导入 ' + res.rows.length + ' 行明细，请核对金额'; }
                 else msg.textContent = '已导入 ' + res.rows.length + ' 行明细；表格中的客户「' + res.custName + '」不在客户库，请手动选择客户';
               } else msg.textContent = '已导入 ' + res.rows.length + ' 行明细，请核对数量与单价';
               /* 导入的源文件上传到云存储，保存报价后作为附件留档展示 */
@@ -605,8 +608,16 @@
           const btn = e.currentTarget;
           const cSel = box.querySelector('#qCust');
           App.formClear(cSel);
-          if (!cSel.value) return App.formError(cSel, '请选择客户');
+          if (!cSel.value.trim()) return App.formError(cSel, '请选择或输入客户名称');
           App.btnLoading(btn);
+          /* 客户名精确匹配现有客户；不匹配则自动建档（联系人/电话留待补充，负责人=当前登录人） */
+          const cname = cSel.value.trim();
+          let cid = (DB.customers.find(c => c.name === cname) || {}).id;
+          if (!cid) {
+            const cr = await saveCustomer({ name: cname, owner: sess.userId, quick: true });
+            if (cr.code !== 0) { App.btnDone(btn); return App.toast('自动建档失败：' + cr.msg, 'danger'); }
+            cid = cr.data.id;
+          }
           const items = rows.map(r => {
             const p = products.find(x => x.id === r.pid);
             return { productId: (p || {}).id || '', name: (r.name || '').trim() || (p ? p.name : ''), spec: (r.spec || '').trim(), unit: r.unit, qty: r.qty, price: r.price };
@@ -615,7 +626,8 @@
           const metas = (await Promise.all(importedFiles)).filter(Boolean);
           metas.forEach(m => { noteVal += (noteVal ? '\n' : '') + '[导入文件]' + m.name + '|' + m.url; });
           const res = await saveQuote({
-            customerId: cSel.value, items, owner: sess.userId, note: noteVal,
+            customerId: cid, items, owner: sess.userId, note: noteVal,
+            validUntil: box.querySelector('#qValid').value,
           });
           App.btnDone(btn);
           if (res.code !== 0) return App.toast(res.msg, 'danger');

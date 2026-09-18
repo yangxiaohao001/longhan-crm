@@ -407,12 +407,19 @@ async function fetchCustomerDetail(id) {
 async function saveCustomer(payload) {
   await delay(500);
   if (!payload.name || !payload.name.trim()) return { code: 1, msg: '请填写公司名称' };
-  if (!payload.contact || !payload.contact.trim()) return { code: 1, msg: '请填写联系人' };
-  if (!payload.phone || !payload.phone.trim()) return { code: 1, msg: '请填写联系电话' };
-  if (DB.customers.some(c => c.name === payload.name.trim())) return { code: 1, msg: '已有同名客户，请勿重复建档' };
+  const quick = payload.quick === true;   /* 快捷建档（报价时打字创建）：联系人/电话留待补充 */
+  if (!quick) {
+    if (!payload.contact || !payload.contact.trim()) return { code: 1, msg: '请填写联系人' };
+    if (!payload.phone || !payload.phone.trim()) return { code: 1, msg: '请填写联系电话' };
+  }
+  const existed = DB.customers.find(c => c.name === payload.name.trim());
+  if (existed) {
+    if (quick) return { code: 0, data: _customerView(existed), existed: true };
+    return { code: 1, msg: '已有同名客户，请勿重复建档' };
+  }
   const c = {
     id: _uid(),
-    name: payload.name.trim(), contact: payload.contact.trim(), phone: payload.phone.trim(),
+    name: payload.name.trim(), contact: (payload.contact || '').trim() || (quick ? '待补充' : ''), phone: (payload.phone || '').trim() || (quick ? '待补充' : ''),
     address: payload.address || '', industry: payload.industry || '其他',
     stage: '初步接触', owner: payload.owner || 'u2',
     nextFollow: payload.nextFollow || '', lastFollow: '',
@@ -1566,18 +1573,20 @@ function _payrollNet(r) {
 async function fetchPayroll(month) {
   await delay(360);
   const _nowM = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); })();
-  let rows = DB.payrolls.filter(x => x.month === month);
-  /* 未来月份不自动结转（防止查看未来月份时凭空生成员工占位数据） */
-  if (!rows.length && month <= _nowM) {
-    const prevMonths = [...new Set(DB.payrolls.map(x => x.month))].filter(m => m < month).sort().reverse();
+  const allM = DB.payrolls.filter(x => x.month === month);
+  let rows = allM.filter(x => x.status !== '已删除');
+  /* 未来月份不自动结转（防止查看未来月份时凭空生成员工占位数据）；
+     已删除的墓碑行会阻断结转——删光某月后该月保持为空，不会从更早月份复活 */
+  if (!allM.length && month <= _nowM) {
+    const prevMonths = [...new Set(DB.payrolls.filter(x => x.status !== '已删除').map(x => x.month))].filter(m => m < month).sort().reverse();
     if (prevMonths.length) {
-      for (const p of DB.payrolls.filter(x => x.month === prevMonths[0])) {
+      for (const p of DB.payrolls.filter(x => x.month === prevMonths[0] && x.status !== '已删除')) {
         const nr = { id: _uid(), user_id: p.user_id, name: p.name, month, base_salary: p.base_salary, attend_days: 0, overtime_hours: 0, overtime_pay: 0, bonus: p.bonus || 0, other_deduction: p.other_deduction || 0, status: '草稿', note: '' };
         nr.net_pay = _payrollNet(nr);
         DB.payrolls.push(nr);
         _cloudSync('payrolls', 'upsert', nr);
       }
-      rows = DB.payrolls.filter(x => x.month === month);
+      rows = DB.payrolls.filter(x => x.month === month && x.status !== '已删除');
     }
   }
   const data = rows.map(r => {
@@ -1650,8 +1659,12 @@ async function importPayrollRows(items, month) {
 
 async function deletePayrollRow(id) {
   await delay(300);
-  const i = DB.payrolls.findIndex(x => x.id === id);
-  if (i < 0) return { code: 1, msg: '记录不存在' };
-  DB.payrolls.splice(i, 1);
+  const r = DB.payrolls.find(x => x.id === id);
+  if (!r) return { code: 1, msg: '记录不存在' };
+  /* 软删除：保留云端墓碑行，防止"自动结转"把删掉的月份复活；显示/统计均过滤已删除。
+     这样删除任意月份都独立生效，不必从最早月份开始删。 */
+  r.status = '已删除';
+  const _row = Object.assign({}, r); delete _row.name; delete _row.userName; delete _row.position;
+  _cloudSync('payrolls', 'upsert', _row);
   return { code: 0 };
 }

@@ -15,7 +15,7 @@
   /* 月份状态点：该月有工资数据且全部已发放 → green；有数据含草稿 → yellow；无数据 → 无点 */
   function monthStatus(m) {
     try {
-      const rows = (DB.payrolls || []).filter(x => x.month === m);
+      const rows = (DB.payrolls || []).filter(x => x.month === m && x.status !== '已删除');
       if (!rows.length) return '';
       return rows.every(r => r.status === '已发放') ? 'green' : 'yellow';
     } catch (e) { return ''; }
@@ -40,7 +40,7 @@
       /* 季度 / 年度已发放总额（跨月聚合，取自全量工资表） */
       const unpaidNet = num(totalNet - paidNet);
       const year = state.month.slice(0, 4);
-      const allRows = DB.payrolls || [];
+      const allRows = (DB.payrolls || []).filter(r => r.status !== '已删除');
       const paidSum = pred => num(allRows.filter(r => r.status === '已发放' && pred(r.month || '')).reduce((s2, r) => s2 + (Number(r.net_pay) || 0), 0));
       const qMonths = [1, 2, 3].map(i => year + '-' + String((state.quarter - 1) * 3 + i).padStart(2, '0'));
       const qPaid = paidSum(m => qMonths.includes(m));
