@@ -1404,21 +1404,44 @@ async function fetchLedgers(filters) {
 }
 
 // TODO: replace with fetch('GET /api/finance/summary')
-async function fetchFinanceSummary() {
+async function fetchFinanceSummary(opts) {
   await delay(420);
-  const month = DB.today.slice(0, 7);
+  const month = (opts && opts.month) || DB.today.slice(0, 7);
+  const _sumInc = m => DB.payments.filter(p => _monthOf(p.date) === m).reduce((s, p) => s + p.amount, 0);
+  const _sumExp = m => DB.purchases.filter(p => p.payDate && _monthOf(p.payDate) === m).reduce((s, p) => s + _purchaseTotal(p), 0)
+    + DB.manualLedgers.filter(l => _monthOf(l.date) === m).reduce((s, l) => s + l.amount, 0);
   const income = DB.payments.filter(p => _monthOf(p.date) === month).reduce((s, p) => s + p.amount, 0);
   const expensePurchase = DB.purchases.filter(p => p.payDate && _monthOf(p.payDate) === month).reduce((s, p) => s + _purchaseTotal(p), 0);
   const expenseManual = DB.manualLedgers.filter(l => _monthOf(l.date) === month).reduce((s, l) => s + l.amount, 0);
   const expense = expensePurchase + expenseManual;
 
-  /* 近 6 个月收支 */
-  const trend = TREND_MONTHS.map(m => ({
-    m,
-    income: DB.payments.filter(p => _monthOf(p.date) === m).reduce((s, p) => s + p.amount, 0),
-    expense: DB.purchases.filter(p => p.payDate && _monthOf(p.payDate) === m).reduce((s, p) => s + _purchaseTotal(p), 0)
-      + DB.manualLedgers.filter(l => _monthOf(l.date) === m).reduce((s, l) => s + l.amount, 0),
-  }));
+  /* 近 12 个月收支 + 去年同月同比 */
+  const trend = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1 - i, 1);
+    const m = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    const pm = (Number(m.slice(0, 4)) - 1) + m.slice(4);
+    const inc = _sumInc(m), exp = _sumExp(m);
+    const pinc = _sumInc(pm), pexp = _sumExp(pm);
+    trend.push({
+      m, income: inc, expense: exp,
+      yoyIncome: pinc > 0 ? Math.round((inc - pinc) / pinc * 1000) / 10 : null,
+      yoyExpense: pexp > 0 ? Math.round((exp - pexp) / pexp * 1000) / 10 : null,
+    });
+  }
+  /* 去年同月（KPI 同比） */
+  const prevMonth = (Number(month.slice(0, 4)) - 1) + month.slice(4);
+  const yoyIncome = _sumInc(prevMonth) > 0 ? Math.round((income - _sumInc(prevMonth)) / _sumInc(prevMonth) * 1000) / 10 : null;
+  const yoyExpense = _sumExp(prevMonth) > 0 ? Math.round((expense - _sumExp(prevMonth)) / _sumExp(prevMonth) * 1000) / 10 : null;
+
+  /* 季度 / 年度汇总（以所选月份所在年份计） */
+  const year = month.slice(0, 4);
+  const q = (opts && opts.quarter) || Math.floor((Number(month.slice(5, 7)) - 1) / 3) + 1;
+  const qMonths = [1, 2, 3].map(i => year + '-' + String((q - 1) * 3 + i).padStart(2, '0'));
+  const qIncome = qMonths.reduce((s, m) => s + _sumInc(m), 0);
+  const qExpense = qMonths.reduce((s, m) => s + _sumExp(m), 0);
+  const yIncome = trend.filter(t => t.m.slice(0, 4) === year).reduce((s, t) => s + t.income, 0);
+  const yExpense = trend.filter(t => t.m.slice(0, 4) === year).reduce((s, t) => s + t.expense, 0);
 
   /* 应付：已审批未付款采购 */
   const payables = DB.purchases.filter(p => ['已审批', '待审批'].includes(p.status))
@@ -1460,9 +1483,12 @@ async function fetchFinanceSummary() {
       month,
       kpis: {
         income, expense, net: income - expense,
+        yoyIncome, yoyExpense,
         receivableTotal: openOrders.reduce((s, o) => s + _orderBalance(o), 0),
         payableTotal: payables.reduce((s, p) => s + p.amount, 0),
       },
+      quarter: { q, months: qMonths, income: Math.round(qIncome * 100) / 100, expense: Math.round(qExpense * 100) / 100 },
+      yearSummary: { year, income: Math.round(yIncome * 100) / 100, expense: Math.round(yExpense * 100) / 100 },
       salaryPaid: Math.round(salaryPaid * 100) / 100,
       salaryPending: Math.round(salaryPending * 100) / 100,
       trend,
