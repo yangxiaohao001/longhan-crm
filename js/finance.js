@@ -11,6 +11,8 @@
   const state = { month: '', type: '全部', category: '全部', catMonth: '' };
 
   const CATS = ['采购', '钢材', '辅料', '运费', '工资', '维修', '水电', '其他'];
+  /* 动态科目：历史手工账里出现过的自定义科目自动进入候选（下次直接选用） */
+  const allCats = () => CATS.concat([...new Set((DB.manualLedgers || []).map(l => (l.category || '').trim()).filter(c => c && !CATS.includes(c)))]);
 
   async function renderList() {
     root.innerHTML = '<div class="skeleton s-block"></div><div class="skeleton s-block"></div>';
@@ -80,7 +82,7 @@
       '<div class="card-tools">' +
       '<select class="select" id="mSel" style="width:120px"><option value="">全部月份</option>' + months.map(m => '<option' + (state.month === m ? ' selected' : '') + '>' + m + '</option>').join('') + '</select>' +
       '<select class="select" id="tSel" style="width:100px">' + ['全部', '收入', '支出'].map(t => '<option' + (state.type === t ? ' selected' : '') + '>' + t + '</option>').join('') + '</select>' +
-      '<select class="select" id="cSel" style="width:110px">' + ['全部'].concat(CATS).map(c => '<option' + (state.category === c ? ' selected' : '') + '>' + c + '</option>').join('') + '</select>' +
+      '<select class="select" id="cSel" style="width:110px">' + ['全部'].concat(allCats()).map(c => '<option' + (state.category === c ? ' selected' : '') + '>' + App.escapeHtml(c) + '</option>').join('') + '</select>' +
       (canEdit ? '<button class="btn btn-primary btn-sm" id="addLed"><span data-icon="plus"></span>记一笔支出</button>' : '') +
       '</div></div>' +
       '<div class="card-body table-wrap"><table class="table">' +
@@ -131,7 +133,7 @@
       html:
         '<div class="form-grid">' +
         '<div class="form-item"><label>日期<b>*</b></label><input class="input" id="lDate" type="date" value="' + (existing ? existing.date : App.today) + '"><p class="form-error"></p></div>' +
-        '<div class="form-item"><label>科目<b>*</b></label><select class="select" id="lCat">' + CATS.map(c => '<option' + (existing && existing.category === c ? ' selected' : '') + '>' + c + '</option>').join('') + '</select></div>' +
+        '<div class="form-item"><label>科目<b>*</b>（可输入新科目，保存后自动复用）</label><input class="input" id="lCat" list="lCatList" placeholder="下拉选择或直接输入，如 广告费" autocomplete="off"><datalist id="lCatList">' + allCats().map(c => '<option value="' + App.escapeHtml(c) + '">').join('') + '</datalist></div>' +
         '<div class="form-item"><label>金额（元）<b>*</b></label><input class="input num" id="lAmt" type="number" min="1" step="0.01" value="' + (existing ? existing.amount : '') + '" placeholder="如 6800"><p class="form-error"></p></div>' +
         '<div class="form-item"><label>关联单号</label><input class="input num" id="lRef" value="' + App.escapeHtml(existing ? (existing.refNo || '') : '') + '" placeholder="选填，如 PO2026-001"></div>' +
         '<div class="form-item" style="grid-column:1/-1"><label>用途说明</label><input class="input" id="lNote" value="' + App.escapeHtml(existing ? (existing.note || '') : '') + '" placeholder="选填"></div>' +
@@ -155,7 +157,9 @@
           const res = isEdit ? await updateManualLedger(existing.id, payload) : await saveManualLedger(payload);
           App.btnDone(btn);
           if (res.code !== 0) return App.toast(res.msg, 'danger');
-          App.closeModal(); App.toast(isEdit ? '支出已更新' : '支出已入账'); renderList();
+          App.closeModal();
+          App.toast(res.data && res.data.converted ? (res.msg + '，支出已计入') : (isEdit ? '支出已更新' : '支出已入账'));
+          renderList();
         });
       },
     });

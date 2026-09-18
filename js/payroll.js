@@ -48,19 +48,19 @@
 
       root.innerHTML =
         '<div class="grid grid-4" style="margin-bottom:12px">' +
-        '<div class="kpi"><div class="kpi-label"><span data-icon="banknote"></span>本月应发合计</div><div class="kpi-value" data-count="' + Math.round(totalNet) + '">—</div></div>' +
-        '<div class="kpi"><div class="kpi-label"><span data-icon="wallet"></span>本月已发放</div><div class="kpi-value success" data-count="' + Math.round(paidNet) + '">—</div></div>' +
-        '<div class="kpi"><div class="kpi-label"><span data-icon="clock"></span>本月未发放</div><div class="kpi-value" style="color:#eab308" data-count="' + Math.round(unpaidNet) + '">—</div></div>' +
+        '<div class="kpi"><div class="kpi-label"><span data-icon="banknote"></span>本月应发合计</div><div class="kpi-value" data-count="' + (Math.round(totalNet * 100) / 100) + '">—</div></div>' +
+        '<div class="kpi"><div class="kpi-label"><span data-icon="wallet"></span>本月已发放</div><div class="kpi-value success" data-count="' + (Math.round(paidNet * 100) / 100) + '">—</div></div>' +
+        '<div class="kpi"><div class="kpi-label"><span data-icon="clock"></span>本月未发放</div><div class="kpi-value" style="color:#eab308" data-count="' + (Math.round(unpaidNet * 100) / 100) + '">—</div></div>' +
         '<div class="kpi"><div class="kpi-label"><span data-icon="users"></span>本月人数</div><div class="kpi-value" data-count="' + rows.length + '" data-int="1">—</div></div>' +
         '</div>' +
         '<div class="grid grid-2" style="margin-bottom:16px">' +
         '<div class="kpi"><div class="kpi-label"><span data-icon="calendar"></span>季度已发放工资' +
         '<select class="select" id="qSel" style="margin-left:auto;width:104px;padding:2px 6px;font-size:12px">' +
         [1, 2, 3, 4].map(q => '<option value="' + q + '"' + (q === state.quarter ? ' selected' : '') + '>第 ' + q + ' 季度</option>').join('') + '</select></div>' +
-        '<div class="kpi-value success" data-count="' + Math.round(qPaid) + '">—</div>' +
+        '<div class="kpi-value success" data-count="' + (Math.round(qPaid * 100) / 100) + '">—</div>' +
         '<div class="sub-line" style="margin-top:4px">' + year + ' 年第 ' + state.quarter + ' 季度（' + qMonths[0] + ' ~ ' + qMonths[2] + '）</div></div>' +
         '<div class="kpi"><div class="kpi-label"><span data-icon="award"></span>年度发放工资总额</div>' +
-        '<div class="kpi-value success" data-count="' + Math.round(yPaid) + '">—</div>' +
+        '<div class="kpi-value success" data-count="' + (Math.round(yPaid * 100) / 100) + '">—</div>' +
         '<div class="sub-line" style="margin-top:4px">' + year + ' 年全年已发放合计</div></div>' +
         '</div>' +
 

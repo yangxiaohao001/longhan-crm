@@ -1486,10 +1486,33 @@ async function saveManualLedger(payload) {
   await delay(480);
   const amount = Number(payload.amount);
   if (!amount || amount <= 0) return { code: 1, msg: '请填写正确的金额' };
-  if (!payload.category) return { code: 1, msg: '请选择支出科目' };
+  const cat = (payload.category || '').trim();
+  if (!cat) return { code: 1, msg: '请选择支出科目' };
   if (!payload.date) return { code: 1, msg: '请选择日期' };
+  /* 科目=采购 → 自动创建一张已完结采购单（审批/付款/入库一次完成）；
+     支出由「采购付款自动生成」流水承担，本笔记不再写手工账，避免双算 */
+  if (cat === '采购') {
+    let sup = DB.suppliers.find(s => s.name === '零星采购');
+    if (!sup) {
+      sup = { id: 'sup-' + Date.now().toString(36), name: '零星采购', contact: '—', phone: '—', category: '其他' };
+      DB.suppliers.push(sup);
+      _cloudSync('suppliers', 'upsert', sup);
+    }
+    const max = DB.purchases.reduce((m, p) => Math.max(m, parseInt((p.no || '').slice(7), 10) || 0), 0);
+    const p = {
+      id: _uid(), no: 'PO2026-' + String(max + 1).padStart(3, '0'),
+      title: (payload.note || '').trim() || '日常采购', supplierId: sup.id,
+      requester: payload.recorder || 'u1', status: '已入库', createdAt: DB.today,
+      approveDate: payload.date, payDate: payload.date, receiveDate: payload.date,
+      note: '记账转化自动生成',
+      items: [{ name: (payload.note || '日常采购').trim() || '日常采购', spec: '', unit: '批', qty: 1, price: amount }],
+    };
+    DB.purchases.unshift(p);
+    _cloudSync('purchases', 'upsert', p);
+    return { code: 0, data: Object.assign({}, p, { converted: true }), msg: '已同步生成采购单 ' + p.no };
+  }
   const l = {
-    id: _uid(), date: payload.date, type: '支出', category: payload.category,
+    id: _uid(), date: payload.date, type: '支出', category: cat,
     amount, recorder: payload.recorder || 'u4', note: _ledgerNoteEncode(payload.refNo, payload.note),
   };
   DB.manualLedgers.push(l);
@@ -1605,10 +1628,10 @@ function _syncPayrollLedger(month) {
     const alive = (DB.payrolls || []).filter(x => x.month === month && x.status !== '已删除');
     const paid = alive.filter(x => x.status === '已发放');
     const paidSum = Math.round(paid.reduce((s2, x) => s2 + (Number(x.net_pay) || 0), 0) * 100) / 100;
-    const draftExists = alive.some(x => x.status !== '已发放');
+    /* 部分发放也计入：流水金额=该月已发放合计，随发放/撤销实时增减 */
     const refNo = 'PAY-' + month;
     const idx = DB.manualLedgers.findIndex(l => l.category === '工资' && _ledgerNoteDecode(l).refNo === refNo);
-    if (paid.length && !draftExists && paidSum > 0) {
+    if (paid.length && paidSum > 0) {
       const date = paid.map(x => x.pay_date).filter(Boolean).sort().pop() || DB.today;
       if (idx >= 0) {
         const l = DB.manualLedgers[idx];
@@ -1622,7 +1645,7 @@ function _syncPayrollLedger(month) {
         const l = {
           id: _uid(), date, type: '支出', category: '工资', amount: paidSum,
           recorder: (sess && sess.userId) || 'u1',
-          note: _ledgerNoteEncode(refNo, '工资自动生成（' + paid.length + ' 人）'),
+          note: _ledgerNoteEncode(refNo, '工资自动生成（' + paid.length + ' 人' + (alive.some(x => x.status !== '已发放') ? '，部分发放' : '') + '）'),
         };
         DB.manualLedgers.push(l);
         _cloudSync('manualLedgers', 'upsert', l);
