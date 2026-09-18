@@ -803,3 +803,6 @@ html[data-theme="light"] .nav-badge.red { background: #dc2626; }
 .mc-none { background: transparent; }
 .month-cal-legend { display: flex; gap: 14px; margin-top: 10px; font-size: 11.5px; color: var(--ink-faint); align-items: center; }
 html[data-theme="light"] .month-cal { box-shadow: 0 14px 34px rgba(15, 23, 42, .18); }
+
+.mc-cell.mc-disabled { opacity: .35; cursor: not-allowed; }
+.mc-cell.mc-disabled:hover { border-color: var(--border); }

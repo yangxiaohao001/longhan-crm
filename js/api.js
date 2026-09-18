@@ -1565,8 +1565,10 @@ function _payrollNet(r) {
 
 async function fetchPayroll(month) {
   await delay(360);
+  const _nowM = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); })();
   let rows = DB.payrolls.filter(x => x.month === month);
-  if (!rows.length) {
+  /* 未来月份不自动结转（防止查看未来月份时凭空生成员工占位数据） */
+  if (!rows.length && month <= _nowM) {
     const prevMonths = [...new Set(DB.payrolls.map(x => x.month))].filter(m => m < month).sort().reverse();
     if (prevMonths.length) {
       for (const p of DB.payrolls.filter(x => x.month === prevMonths[0])) {
@@ -1589,6 +1591,8 @@ async function fetchPayroll(month) {
 
 async function savePayrollRow(payload) {
   await delay(420);
+  const _nowM = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); })();
+  if (payload.month && payload.month > _nowM) return { code: 1, msg: payload.month + ' 尚未开始，到达该月后才能登记工资' };
   const name = String(payload.name || '').trim();
   let user_id = payload.user_id;
   if (!user_id) user_id = name ? 'ext:' + name : '';
@@ -1612,6 +1616,8 @@ async function savePayrollRow(payload) {
 
 async function importPayrollRows(items, month) {
   await delay(600);
+  const _nowM = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); })();
+  if (month > _nowM) return { code: 1, msg: month + ' 尚未开始，到达该月后才能导入工资' };
   const created = [], updated = [], skipped = [];
   const num = x => Math.round((Number(x) || 0) * 100) / 100;
   for (const it of items || []) {

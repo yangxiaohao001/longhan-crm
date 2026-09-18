@@ -106,10 +106,13 @@
       let calYear = Number(state.month.slice(0, 4));
       const renderCal = () => {
         const cells = [];
+        const nowM = todayStr.slice(0, 7);   /* 未来月份灰掉禁点：到达该月（如 10-01 00:00）才解锁 */
         for (let i = 1; i <= 12; i++) {
           const m = calYear + '-' + String(i).padStart(2, '0');
-          const st = monthStatus(m);
-          cells.push('<button class="mc-cell' + (m === state.month ? ' active' : '') + '" data-m="' + m + '">' + i + '月' +
+          const future = m > nowM;
+          const st = future ? '' : monthStatus(m);
+          cells.push('<button class="mc-cell' + (m === state.month ? ' active' : '') + (future ? ' mc-disabled' : '') +
+            '" data-m="' + m + '"' + (future ? ' tabindex="-1"' : '') + '>' + i + '月' +
             (st ? '<i class="mc-dot mc-' + st + '"></i>' : '') + '</button>');
         }
         mCal.innerHTML =
@@ -117,10 +120,11 @@
           '<b style="font-size:13.5px">' + calYear + ' 年</b>' +
           '<button class="btn btn-sm" id="calNext"><span data-icon="chevron-right"></span></button></div>' +
           '<div class="month-cal-grid">' + cells.join('') + '</div>' +
-          '<div class="month-cal-legend"><span><i class="mc-dot mc-green"></i>已发放</span><span><i class="mc-dot mc-yellow"></i>有数据未发放</span><span>无点 = 无数据</span></div>';
+          '<div class="month-cal-legend"><span><i class="mc-dot mc-green"></i>已发放</span><span><i class="mc-dot mc-yellow"></i>有数据未发放</span><span>无点 = 无数据</span><span>灰 = 未到月份</span></div>';
         mCal.querySelector('#calPrev').addEventListener('click', () => { calYear--; renderCal(); });
         mCal.querySelector('#calNext').addEventListener('click', () => { calYear++; renderCal(); });
         mCal.querySelectorAll('.mc-cell').forEach(c => c.addEventListener('click', () => {
+          if (c.classList.contains('mc-disabled')) return;   /* 未来月份不可选 */
           state.month = c.dataset.m;
           mCal.style.display = 'none';
           root.querySelector('#monthBtnTxt').textContent = state.month;
