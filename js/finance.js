@@ -39,7 +39,10 @@
     root.innerHTML =
       '<div class="grid grid-kpi" style="margin-bottom:16px">' +
       '<div class="kpi"><div class="kpi-label"><span data-icon="trending-up"></span>本月收入（回款）</div><div class="kpi-value success" data-count="' + f.kpis.income + '">—</div></div>' +
-      '<div class="kpi"><div class="kpi-label"><span data-icon="trending-down"></span>本月支出</div><div class="kpi-value danger" data-count="' + f.kpis.expense + '">—</div></div>' +
+      '<div class="kpi"><div class="kpi-label"><span data-icon="trending-down"></span>本月支出</div><div class="kpi-value danger" data-count="' + f.kpis.expense + '">—</div>' +
+      (f.salaryPending > 0 ? '<div class="kpi-foot"><span class="kpi-delta" style="color:#eab308">本月应发放工资：¥' + App.fmtMoney(f.salaryPending) + '（未计入支出）</span></div>' : '') +
+      (f.salaryPaid > 0 ? '<div class="kpi-foot"><span class="kpi-delta" style="color:#22c55e">本月已发放工资：¥' + App.fmtMoney(f.salaryPaid) + '（已计入支出）</span></div>' : '') +
+      '</div>' +
       '<div class="kpi"><div class="kpi-label"><span data-icon="coins"></span>本月净流入</div><div class="kpi-value ' + (f.kpis.net >= 0 ? 'success' : 'danger') + '" data-count="' + f.kpis.net + '">—</div></div>' +
       '<div class="kpi"><div class="kpi-label"><span data-icon="circle-dollar-sign"></span>应收欠款</div><div class="kpi-value warn" data-count="' + f.kpis.receivableTotal + '">—</div></div>' +
       '<div class="kpi"><div class="kpi-label"><span data-icon="truck"></span>应付采购款</div><div class="kpi-value warn" data-count="' + f.kpis.payableTotal + '">—</div><div class="kpi-foot"><span class="kpi-delta">' + f.payables.length + ' 笔待付</span></div></div>' +
@@ -84,7 +87,7 @@
         '<td>' + (canEdit && l.src === 'manual'
           ? '<div class="row-actions"><button class="btn btn-sm" data-ledit="' + l.id + '"><span data-icon="pencil"></span>编辑</button>' +
           '<button class="btn btn-sm btn-danger" data-ldel="' + l.id + '"><span data-icon="trash-2"></span>删除</button></div>'
-          : '<span class="sub-line">' + (l.type === '收入' ? '回款' : '采购付款') + '自动生成</span>') + '</td></tr>').join('')
+          : '<span class="sub-line">' + (l.type === '收入' ? '回款' : (l.src === 'payroll' ? '工资发放' : '采购付款')) + '自动生成</span>') + '</td></tr>').join('')
         : '<tr><td colspan="8"><div class="empty"><span data-icon="inbox"></span><p>暂无流水</p></div></td></tr>') +
       '</tbody></table></div></div>';
 

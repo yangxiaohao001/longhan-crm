@@ -1392,7 +1392,8 @@ async function fetchLedgers(filters) {
   }));
   const manual = DB.manualLedgers.map(l => {
     const dec = _ledgerNoteDecode(l);
-    return { ...l, refNo: dec.refNo, note: dec.note, customerName: '', src: 'manual' };
+    const isPayroll = l.category === '工资' && (dec.refNo || '').indexOf('PAY-') === 0;
+    return { ...l, refNo: dec.refNo, note: dec.note, customerName: '', src: isPayroll ? 'payroll' : 'manual' };
   });
   let list = income.concat(purchasePay, manual);
   if (f.month) list = list.filter(l => _monthOf(l.date) === f.month);
@@ -1432,6 +1433,10 @@ async function fetchFinanceSummary() {
   DB.manualLedgers.filter(l => _monthOf(l.date) === month)
     .forEach(l => { catMap[l.category] = (catMap[l.category] || 0) + l.amount; });
 
+  /* 工资口径：已发放（工资流水，已计入支出）/ 应发放（草稿合计，未计入） */
+  const salaryPaid = DB.manualLedgers.filter(l => l.category === '工资' && _monthOf(l.date) === month).reduce((s, l) => s + l.amount, 0);
+  const salaryPending = (DB.payrolls || []).filter(x => x.month === month && x.status !== '已删除' && x.status !== '已发放').reduce((s, x) => s + (Number(x.net_pay) || 0), 0);
+
   return {
     code: 0,
     data: {
@@ -1441,6 +1446,8 @@ async function fetchFinanceSummary() {
         receivableTotal: openOrders.reduce((s, o) => s + _orderBalance(o), 0),
         payableTotal: payables.reduce((s, p) => s + p.amount, 0),
       },
+      salaryPaid: Math.round(salaryPaid * 100) / 100,
+      salaryPending: Math.round(salaryPending * 100) / 100,
       trend,
       payables,
       expenseCats: Object.keys(catMap).map(k => ({ name: k, value: catMap[k] })).sort((a, b) => b.value - a.value),
@@ -1570,6 +1577,45 @@ function _payrollNet(r) {
   return Math.round((basePart + (Number(r.overtime_pay) || 0) + (Number(r.bonus) || 0) - (Number(r.other_deduction) || 0)) * 100) / 100;
 }
 
+/* 工资发放 → 记账流水同步（收付实现制）：
+   该月全部行已发放 → 生成/更新一笔「工资」科目支出流水（计入本月支出）；
+   该月仍有草稿（或无人已发放）→ 移除该月工资流水（不计入支出）。
+   流水 refNo = PAY-<月份>，只读不可改删（来源标记 payroll）。 */
+function _syncPayrollLedger(month) {
+  try {
+    const alive = (DB.payrolls || []).filter(x => x.month === month && x.status !== '已删除');
+    const paid = alive.filter(x => x.status === '已发放');
+    const paidSum = Math.round(paid.reduce((s2, x) => s2 + (Number(x.net_pay) || 0), 0) * 100) / 100;
+    const draftExists = alive.some(x => x.status !== '已发放');
+    const refNo = 'PAY-' + month;
+    const idx = DB.manualLedgers.findIndex(l => l.category === '工资' && _ledgerNoteDecode(l).refNo === refNo);
+    if (paid.length && !draftExists && paidSum > 0) {
+      const date = paid.map(x => x.pay_date).filter(Boolean).sort().pop() || DB.today;
+      if (idx >= 0) {
+        const l = DB.manualLedgers[idx];
+        if (Number(l.amount) !== paidSum || l.date !== date) {
+          l.amount = paidSum; l.date = date;
+          _cloudSync('manualLedgers', 'upsert', l);
+        }
+      } else {
+        let sess = null;
+        try { sess = JSON.parse(localStorage.getItem('lh-crm-session') || 'null'); } catch (e) {}
+        const l = {
+          id: _uid(), date, type: '支出', category: '工资', amount: paidSum,
+          recorder: (sess && sess.userId) || 'u1',
+          note: _ledgerNoteEncode(refNo, '工资自动生成（' + paid.length + ' 人）'),
+        };
+        DB.manualLedgers.push(l);
+        _cloudSync('manualLedgers', 'upsert', l);
+      }
+    } else if (idx >= 0) {
+      const l = DB.manualLedgers[idx];
+      DB.manualLedgers.splice(idx, 1);
+      _cloudSync('manualLedgers', 'delete', l);
+    }
+  } catch (e) { console.warn('[工资流水同步]', e && e.message); }
+}
+
 async function fetchPayroll(month) {
   await delay(360);
   const _nowM = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); })();
@@ -1620,6 +1666,7 @@ async function savePayrollRow(payload) {
   r.net_pay = _payrollNet(r);
   const _row = Object.assign({}, r); delete _row.name; delete _row.userName; delete _row.position;
   _cloudSync('payrolls', 'upsert', _row);
+  _syncPayrollLedger(payload.month);   /* 发放状态变化 → 同步记账工资流水 */
   return { code: 0, data: { ...r, userName: r.name } };
 }
 
@@ -1654,6 +1701,7 @@ async function importPayrollRows(items, month) {
     (isNew ? created : updated).push(r.name);
     if (!u) skipped.push({ name, reason: '系统外员工，已按外部人员登记' });
   }
+  _syncPayrollLedger(month);
   return { code: 0, data: { created, updated, skipped } };
 }
 
@@ -1666,5 +1714,6 @@ async function deletePayrollRow(id) {
   r.status = '已删除';
   const _row = Object.assign({}, r); delete _row.name; delete _row.userName; delete _row.position;
   _cloudSync('payrolls', 'upsert', _row);
+  _syncPayrollLedger(r.month);
   return { code: 0 };
 }
