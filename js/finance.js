@@ -8,7 +8,8 @@
 (function () {
   const root = document.getElementById('pageRoot');
   const sess = App.session();
-  const state = { month: '', type: '全部', category: '全部', catMonth: '', monthFin: '', quarterFin: 0 };
+  const _nowQ = Math.floor(new Date().getMonth() / 3) + 1;
+  const state = { month: '', type: '全部', category: '全部', catMonth: '', monthFin: '', quarterFin: _nowQ };
 
   const CATS = ['采购', '钢材', '辅料', '运费', '工资', '维修', '水电', '其他'];
   /* 动态科目：历史手工账里出现过的自定义科目自动进入候选（下次直接选用） */
@@ -29,16 +30,19 @@
 
     /* 收支趋势：簇状柱形图（12 个月，收入/支出双柱，带同比标签与生长动画） */
     const maxV = Math.max.apply(null, f.trend.map(t => Math.max(t.income, t.expense))) || 1;
-    const barH = v => Math.max(v > 0 ? 5 : 2, Math.round(v / maxV * 118));
+    const barH = v => Math.max(v > 0 ? 6 : 2, Math.round(v / maxV * 150));
     const fmtK = v => v >= 10000 ? (v / 10000).toFixed(1).replace(/\.0$/, '') + '万' : String(Math.round(v));
+    const fmtV = v => v > 0 ? fmtK(v) : '<span class="tc-zero">·</span>';   /* 零值淡显，不再满屏 0 */
     let colIdx = 0;
     const bars = f.trend.map(t => {
-      const delay = (colIdx++ * 45) + 'ms';
-      const yoyTag = t.yoyIncome == null ? '' :
-        '<div class="tc-yoy" style="color:' + (t.yoyIncome >= 0 ? '#22c55e' : '#e5484d') + '">' + (t.yoyIncome >= 0 ? '▲' : '▼') + ' ' + Math.abs(t.yoyIncome) + '%</div>';
-      return '<div class="tc-col" style="animation-delay:' + delay + '">' +
-        '<div class="tc-vals"><i style="color:var(--chart-1)">' + fmtK(t.income) + '</i><i style="color:var(--chart-3)">' + fmtK(t.expense) + '</i></div>' +
-        '<div class="tc-bars" title="' + t.m + '  收入 ' + App.fmtMoney(t.income) + ' / 支出 ' + App.fmtMoney(t.expense) + '">' +
+      const delay = (colIdx++ * 40) + 'ms';
+      /* 同比只在去年同期有数据时显示，格式 ▲+x% / ▼-x% */
+      const yoyTag = t.yoyIncome == null ? '<div class="tc-yoy">&nbsp;</div>' :
+        '<div class="tc-yoy" style="color:' + (t.yoyIncome >= 0 ? '#22c55e' : '#e5484d') + '">' + (t.yoyIncome >= 0 ? '▲+' : '▼-') + Math.abs(t.yoyIncome) + '%</div>';
+      const hot = t.income > 0 || t.expense > 0;
+      return '<div class="tc-col' + (hot ? ' tc-hot' : '') + '" style="animation-delay:' + delay + '">' +
+        '<div class="tc-vals"><i style="color:var(--chart-1)">' + fmtV(t.income) + '</i><i style="color:var(--chart-3)">' + fmtV(t.expense) + '</i></div>' +
+        '<div class="tc-bars" title="' + t.m + '  收入 ' + App.fmtMoney(t.income) + ' / 支出 ' + App.fmtMoney(t.expense) + (t.yoyIncome == null ? '' : ' / 收入同比 ' + (t.yoyIncome >= 0 ? '+' : '') + t.yoyIncome + '%') + '">' +
         '<div class="tc-bar tc-in" style="height:' + barH(t.income) + 'px;animation-delay:' + delay + '"></div>' +
         '<div class="tc-bar tc-exp" style="height:' + barH(t.expense) + 'px;animation-delay:' + delay + '"></div></div>' +
         '<div class="tc-m">' + t.m.slice(5) + '月</div>' + yoyTag + '</div>';
@@ -73,22 +77,23 @@
       '<div class="kpi"><div class="kpi-label"><span data-icon="circle-dollar-sign"></span>应收欠款</div><div class="kpi-value warn" data-count="' + f.kpis.receivableTotal + '">—</div></div>' +
       '<div class="kpi"><div class="kpi-label"><span data-icon="truck"></span>应付采购款</div><div class="kpi-value warn" data-count="' + f.kpis.payableTotal + '">—</div><div class="kpi-foot"><span class="kpi-delta">' + f.payables.length + ' 笔待付</span></div></div>' +
       '</div>' +
-      '<div class="grid grid-4" style="margin-bottom:16px">' +
-      '<div class="kpi"><div class="kpi-label"><span data-icon="calendar"></span>季度收入' +
+      '<div class="grid grid-2" style="margin-bottom:16px">' +
+      '<div class="kpi"><div class="kpi-label"><span data-icon="calendar"></span>季度收支' +
       '<select class="select" id="finQSel" style="margin-left:auto;width:96px;padding:2px 6px;font-size:12px">' +
-      [1, 2, 3, 4].map(q => '<option value="' + q + '"' + (q === state.quarterFin ? ' selected' : '') + '>第 ' + q + ' 季度</option>').join('') + '</select></div>' +
-      '<div class="kpi-value success" data-count="' + f.quarter.income + '">—</div>' +
-      '<div class="kpi-foot"><span class="kpi-delta">' + f.quarter.months[0] + ' ~ ' + f.quarter.months[2] + '</span></div></div>' +
-      '<div class="kpi"><div class="kpi-label"><span data-icon="trending-down"></span>季度支出</div><div class="kpi-value danger" data-count="' + f.quarter.expense + '">—</div>' +
-      '<div class="kpi-foot"><span class="kpi-delta">' + f.yearSummary.year + ' 年第 ' + f.quarter.q + ' 季度</span></div></div>' +
-      '<div class="kpi"><div class="kpi-label"><span data-icon="award"></span>年度收入</div><div class="kpi-value success" data-count="' + f.yearSummary.income + '">—</div>' +
-      '<div class="kpi-foot"><span class="kpi-delta">' + f.yearSummary.year + ' 年全年</span></div></div>' +
-      '<div class="kpi"><div class="kpi-label"><span data-icon="trending-down"></span>年度支出</div><div class="kpi-value danger" data-count="' + f.yearSummary.expense + '">—</div>' +
+      [1, 2, 3, 4].map(q => '<option value="' + q + '"' + (Number(q) === Number(f.quarter.q) ? ' selected' : '') + '>第 ' + q + ' 季度</option>').join('') + '</select></div>' +
+      '<div style="display:flex;align-items:baseline;gap:18px;margin-top:2px">' +
+      '<div><span class="sub-line">收</span> <b class="kpi-value success" style="font-size:22px" data-count="' + f.quarter.income + '">—</b></div>' +
+      '<div><span class="sub-line">支</span> <b class="kpi-value danger" style="font-size:22px" data-count="' + f.quarter.expense + '">—</b></div></div>' +
+      '<div class="kpi-foot"><span class="kpi-delta">' + f.yearSummary.year + ' 年第 ' + f.quarter.q + ' 季度（' + f.quarter.months[0] + ' ~ ' + f.quarter.months[2] + '）</span></div></div>' +
+      '<div class="kpi"><div class="kpi-label"><span data-icon="award"></span>年度收支</div>' +
+      '<div style="display:flex;align-items:baseline;gap:18px;margin-top:2px">' +
+      '<div><span class="sub-line">收</span> <b class="kpi-value success" style="font-size:22px" data-count="' + f.yearSummary.income + '">—</b></div>' +
+      '<div><span class="sub-line">支</span> <b class="kpi-value danger" style="font-size:22px" data-count="' + f.yearSummary.expense + '">—</b></div></div>' +
       '<div class="kpi-foot"><span class="kpi-delta">' + f.yearSummary.year + ' 年全年</span></div></div>' +
       '</div>' +
 
       '<div class="grid grid-2" style="margin-bottom:16px">' +
-      '<div class="card"><div class="card-head"><div class="card-title">收支趋势</div><div class="card-sub">近 12 个月 · 柱上为金额 · ▼▲ 为收入同比</div></div><div class="card-body">' +
+      '<div class="card"><div class="card-head"><div class="card-title">收支趋势</div><div class="card-sub">近 12 个月 · 悬停看精确金额 · 柱下 ▲▼ 为收入较去年同月</div></div><div class="card-body">' +
       '<div class="tc-legend"><span><i style="background:var(--chart-1)"></i>收入（回款）</span><span><i style="background:var(--chart-3)"></i>支出</span></div>' +
       '<div class="tc-chart">' + bars + '</div></div></div>' +
       '<div class="card"><div class="card-head"><div class="card-title">支出构成</div>' +
