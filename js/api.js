@@ -1683,6 +1683,9 @@ async function fetchPayroll(month) {
     const nm = r.name || (isExt ? r.user_id.slice(4) : '') || u.name || '';
     return { ...r, userName: nm, position: u.position || '' };
   }).sort((a, b) => (b.net_pay || 0) - (a.net_pay || 0));
+  /* 对账自愈：每次打开工资页自动核对记账流水（历史版本标记发放时可能漏生成，
+     或其他设备漏生成——不一致就自动补建/修正，用户无需任何操作） */
+  _syncPayrollLedger(month);
   return { code: 0, data };
 }
 
