@@ -128,6 +128,7 @@
       })));
       bindDrop(root.querySelector('#pDrop'));
       App.mountIcons(root);
+      root.querySelectorAll('.kpi-value[data-count]').forEach(el => App.countUp(el, Number(el.dataset.count)));
     });
   }
 
@@ -186,7 +187,8 @@
           const attendV = Number($('#eAttend').value);
           if (!(attendV >= 0) || $('#eAttend').value === '') return App.formError($('#eAttend'), '请填写出勤天数');
           App.btnLoading(btn);
-          const r = await savePayrollRow({
+          /* 注意：不能命名为 r —— 会遮蔽外层 r（编辑时读 r.user_id 触发 TDZ 崩溃，保存永远转圈） */
+          const saved = await savePayrollRow({
             user_id: isNew ? '' : r.user_id, name, month: state.month,
             base_salary: base, attend_days: Number($('#eAttend').value) || 0,
             overtime_hours: Number($('#eOt').value) || 0, overtime_pay: Number($('#eOtPay').value) || 0,
@@ -194,7 +196,7 @@
             note: $('#eNote').value,
           });
           App.btnDone(btn);
-          if (r.code !== 0) return App.toast(r.msg, 'danger');
+          if (saved.code !== 0) return App.toast(saved.msg, 'danger');
           App.closeModal(); App.toast('工资记录已保存'); renderList();
         });
       },

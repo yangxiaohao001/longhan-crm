@@ -101,7 +101,9 @@ async function dbInit() {
       DB.suppliers = M(res[8].data);
       DB.users = M(res[9].data);
       DB.products = M(res[10].data);
-      DB.payrolls = M(res[11].data);
+      /* payroll 行保持 snake_case（base_salary/net_pay...），api.js/payroll.js 全按 snake 读写；
+         若走 _fromRow 转成驼峰会导致刷新后数值全部显示为空 */
+      DB.payrolls = (res[11].data || []);
       if (res[12].data) DB.settings = _fromRow(res[12].data);
       if (res[13].data) DB.meta = _fromRow(res[13].data);
     }
